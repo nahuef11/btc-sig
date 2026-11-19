@@ -216,6 +216,17 @@ def atr(rows, n=14):
     return a
 
 
+def daily_extras(rd):
+    c = [r[4] for r in rd]
+    out = {"cross": cl((ema(c, 50)[-1] / ema(c, 200)[-1] - 1) * 10)}
+    hh, ll = max(r[2] for r in rd[-14:]), min(r[3] for r in rd[-14:])
+    out["stoch"] = cl((.5 - (c[-1] - ll) / ((hh - ll) or 1)) * 2.5)
+    obv = [0]
+    for i in range(1, len(rd)): obv.append(obv[-1] + (rd[i][6] if c[i] > c[i - 1] else -rd[i][6] if c[i] < c[i - 1] else 0))
+    out["obv"] = cl((obv[-1] - obv[-15]) / (sum(r[6] for r in rd[-14:]) or 1) * 3)
+    return out
+
+
 def extras(rd, r4, r1):
     """Filtros adicionales: otras temporalidades, cruce de medias, estocástico y volumen (OBV)."""
     out = {}
@@ -224,14 +235,7 @@ def extras(rd, r4, r1):
             s = scores([r[4] for r in rows])
             out["rsi" + tag], out["macd" + tag] = s["rsi"], s["macd"]
         except Exception as e: print("temporalidad", tag, e)
-    try:
-        c = [r[4] for r in rd]
-        out["cross"] = cl((ema(c, 50)[-1] / ema(c, 200)[-1] - 1) * 10)
-        hh, ll = max(r[2] for r in rd[-14:]), min(r[3] for r in rd[-14:])
-        out["stoch"] = cl((.5 - (c[-1] - ll) / ((hh - ll) or 1)) * 2.5)
-        obv = [0]
-        for i in range(1, len(rd)): obv.append(obv[-1] + (rd[i][6] if c[i] > c[i - 1] else -rd[i][6] if c[i] < c[i - 1] else 0))
-        out["obv"] = cl((obv[-1] - obv[-15]) / (sum(r[6] for r in rd[-14:]) or 1) * 3)
+    try: out.update(daily_extras(rd))
     except Exception as e: print("diario", e)
     return out
 
@@ -270,6 +274,58 @@ def markets():
     try: out["dxy"] = cl(-yahoo("DX-Y.NYB") * 60)
     except Exception as e: print("dxy", e)
     return out
+
+
+LAB = {"rsi": "RSI diario", "macd": "MACD diario", "trend": "tendencia (precio vs media)", "bb": "Bandas de Bollinger",
+       "fg": "Miedo/Codicia", "news": "noticias", "rsi4h": "RSI 4h", "macd4h": "MACD 4h", "rsi1h": "RSI 1h", "macd1h": "MACD 1h",
+       "cross": "cruce de medias 50/200", "stoch": "estocástico", "obv": "volumen (OBV)", "funding": "funding de futuros",
+       "ls": "largos/cortos", "oi": "interés abierto", "nasdaq": "Nasdaq", "dxy": "dólar (DXY)"}
+
+
+def explain(sc, W, score, action, raw, why):
+    """Explicación corta de por qué se tomó la decisión."""
+    top = sorted(sc, key=lambda k: abs(sc[k] * W[k]), reverse=True)[:3]
+    pro = ", ".join(f"{LAB[k]} ({'compra' if sc[k] > 0 else 'venta'})" for k in top)
+    nb, ns = sum(v >= .2 for v in sc.values()), sum(v <= -.2 for v in sc.values())
+    t = f"Puntuación {score:+d} (umbral ±{TH}): {nb} filtros a favor de comprar y {ns} de vender. Pesan más: {pro}."
+    if why: t += f" La señal de {raw.lower()} se bloqueó por: {'; '.join(why)}."
+    elif action == "ESPERAR": t += " No llega al umbral, por eso espera."
+    return t
+
+
+def compare(rd, p, dates, fgmap, days=365, fee=.001):
+    """Prueba cada variante sobre los mismos días: total, 1ª mitad, 2ª mitad, caída máxima y operaciones."""
+    st = len(p) - days
+    A, X = [], []
+    for i in range(st, len(p)):
+        w_, r_ = p[max(0, i - 299):i + 1], rd[max(0, i - 299):i + 1]
+        sc = scores(w_, fgmap.get(dates[i]))
+        below, m = w_[-1] < sum(w_[-200:]) / 200, sc["macd"]
+        A.append((combine(sc, BASE), below, m))
+        X.append((combine({**sc, **daily_extras(r_)}, {**BASE, **XW}), below, m))
+    S = [(-100 if b else 100, b, m) for _, b, m in A]
+
+    def run(sig, gate):
+        e, inm, eq, n = 1.0, False, [1.0], 0
+        for j, (s_, below, m) in enumerate(sig):
+            if j:
+                if inm: e *= p[st + j] / p[st + j - 1]
+                eq.append(e)
+            buy = s_ >= TH and not (gate and below and m < 0 and s_ < 60)
+            sell = s_ <= -TH and not (gate and not below and m > 0 and s_ > -60)
+            if buy and not inm: inm, e, n = True, e * (1 - fee), n + 1
+            elif sell and inm: inm, e, n = False, e * (1 - fee), n + 1
+        return eq, n
+
+    def stat(name, eq, n):
+        mid = len(eq) // 2
+        dd = min(v / max(eq[:j + 1]) - 1 for j, v in enumerate(eq)) * 100
+        return {"name": name, "ret": round((eq[-1] - 1) * 100, 1), "h1": round((eq[mid] / eq[0] - 1) * 100, 1),
+                "h2": round((eq[-1] / eq[mid] - 1) * 100, 1), "dd": round(dd, 1), "n": n}
+
+    out = [stat(nm, *run(sg, g)) for nm, sg, g in (("Base", A, False), ("Base + tendencia", A, True), ("Base + extras", X, False),
+                                                    ("Extras + tendencia", X, True), ("Solo SMA200", S, False))]
+    return out + [stat("Mantener", [x / p[st] for x in p[st:]], 0)]
 
 
 def load_log():
@@ -316,7 +372,7 @@ def norm(t):
     return re.sub(r"[^a-z0-9]", "", re.sub(r" - [^-]{2,30}$", "", t.lower()))[:55]
 
 
-def log_signal(price, score, action, det, sc, why):
+def log_signal(price, score, action, det, sc, why, expl):
     """Una señal cada 2 horas (docs/signals.json), para el registro por días."""
     os.makedirs("docs", exist_ok=True)
     L = load_log()
@@ -324,7 +380,7 @@ def log_signal(price, score, action, det, sc, why):
     slot = n.strftime("%Y-%m-%d") + str(n.hour // 2)
     if not L or L[-1].get("slot") != slot:
         e = {"slot": slot, "ts": n.isoformat(timespec="seconds"), "price": round(price), "score": score,
-             "action": action, "det": det, "sc": {k: round(v, 2) for k, v in sc.items()}}
+             "action": action, "det": det, "expl": expl, "sc": {k: round(v, 2) for k, v in sc.items()}}
         if why: e["gate"] = "; ".join(why)
         L.append(e)
     json.dump(L[-400:], open("docs/signals.json", "w"), ensure_ascii=False)
@@ -395,7 +451,7 @@ def main():
 
     det = " | ".join(f"{k} {v:+.2f}" for k, v in sc.items())
     sigs, ts0 = [], st["history"][-1]["ts"]
-    log_signal(p[-1], score, action, det, sc, why)
+    log_signal(p[-1], score, action, det, sc, why, explain(sc, {**w, **xw}, score, action, raw, why))
     if action != st.get("last"):
         sigs.append({"id": "sig-" + ts0, "type": "signal", "source": "Señales BTC", "action": action, "detail": det,
                      "text": f"{action}" + (f" (señal {raw} bloqueada: {'; '.join(why)})" if why else "") + f" · puntuación {score} · BTC {p[-1]:,.0f} USD", "ts": ts0})
@@ -422,8 +478,10 @@ def main():
             telegram(f"⚡ {i['source']}: {i['text']}\n{i['link']}")
     tot, ok = accuracy(st["history"])
     sim, chart = simulate(p, dates, fgmap)
+    try: variants = compare(rd, p, dates, fgmap)
+    except Exception as e: variants = []; print('comparativa', e)
     write_pwa()
-    write_feed(items, {"gates": why, "sim": sim, "chart": chart, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
+    write_feed(items, {"cmp": variants, "gates": why, "sim": sim, "chart": chart, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
                        "weights": {k: round(v, 3) for k, v in w.items()}}, sigs)
     st["weights"] = {k: round(v, 3) for k, v in w.items()}
     json.dump(st, open(STATE, "w"), indent=1)
