@@ -12,6 +12,12 @@
    "price": 63650.9,
    "score": -7,
    "action": "ESPERAR"
+  },
+  {
+   "ts": "2026-11-19T08:56:42+00:00",
+   "price": 63701.0,
+   "score": -6,
+   "action": "ESPERAR"
   }
  ],
  "weights": {
