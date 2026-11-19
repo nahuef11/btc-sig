@@ -2,6 +2,7 @@
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
 <title>BTC Feed</title>
 <style>
 :root{color-scheme:dark light;--bg:#fff;--tx:#0f1419;--mut:#536471;--bd:#eff3f4;--acc:#1d9bf0;--buy:#00ba7c;--sell:#f4212e;--wait:#d9a400}
@@ -29,15 +30,17 @@ header{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88
 a.go{color:var(--mut);font-size:13px;text-decoration:none}
 .det{color:var(--mut);font-size:13px}
 #st{padding:30px 16px;text-align:center;color:var(--mut)}
+.sim{padding:12px 16px;border-bottom:1px solid var(--bd)}.sim h4{margin:0 0 6px;font-size:15px}.ch{width:100%;height:auto;display:block}.sim p{margin:4px 0;font-size:13px;color:var(--mut)}.sim b{font-size:14px}.sim small{font-size:12px;color:var(--mut)}
 </style></head><body>
 <header>
 <div class="top"><b><i>₿</i> Feed</b><button id="rf">Actualizar</button></div>
 <div class="pulse" id="pulse"></div>
 </header>
+<section class="sim" id="sim"></section>
 <main id="tl"></main><div id="st">Cargando…</div>
 <script>
 const $=id=>document.getElementById(id);
-let D=null;
+let D=null,LIVE=null;
 const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
 const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
 function ago(iso){const s=(Date.now()-new Date(iso))/1000;if(s<60)return"ahora";if(s<3600)return Math.floor(s/60)+" min";if(s<86400)return Math.floor(s/3600)+" h";return Math.floor(s/86400)+" d"}
@@ -65,16 +68,36 @@ function draw(){
 }
 function pulse(){
   const p=D.pulse,c=$("pulse");c.textContent="";
-  const add=(k,v,s)=>{const e=el("span","chip",k+" ");const b=el("b","",v);if(s)b.style.color=s;e.appendChild(b);c.appendChild(e)};
-  add("BTC","$"+fmt(p.price));add("Señal",p.action+" ("+p.score+")",colr(p.action));
+  const add=(k,v,s)=>{const e=el("span","chip",k+" ");const b=el("b","",v);if(s)b.style.color=s;e.appendChild(b);c.appendChild(e);return b};
+  LIVE=add("BTC","$"+fmt(p.price));add("Señal",p.action+" ("+p.score+")",colr(p.action));
   if(p.fg!=null)add("Miedo/Codicia",p.fg);
   if(p.acc&&p.acc[0])add("Aciertos",p.acc[1]+"/"+p.acc[0]);
   add("act.",ago(D.updated));
 }
+function sim(){
+  const c=D.pulse.chart,s=D.pulse.sim,box=$("sim");box.textContent="";
+  if(!c||!s)return;
+  const W=300,H=90,P=c.p,mn=Math.min(...P),mx=Math.max(...P),X=i=>i/(P.length-1)*W,Y=v=>H-4-(v-mn)/(mx-mn||1)*(H-8),ns="http://www.w3.org/2000/svg";
+  const svg=document.createElementNS(ns,"svg");svg.setAttribute("viewBox","0 0 "+W+" "+H);svg.setAttribute("class","ch");
+  const pl=document.createElementNS(ns,"polyline");pl.setAttribute("points",P.map((v,i)=>X(i).toFixed(1)+","+Y(v).toFixed(1)).join(" "));
+  pl.setAttribute("fill","none");pl.setAttribute("stroke","var(--mut)");pl.setAttribute("stroke-width","1.2");svg.appendChild(pl);
+  for(const[i,a]of c.m){const t=document.createElementNS(ns,"circle");t.setAttribute("cx",X(i));t.setAttribute("cy",Y(P[i]));t.setAttribute("r","3");t.setAttribute("fill",a==="B"?"var(--buy)":"var(--sell)");svg.appendChild(t)}
+  const pc=v=>(v>=0?"+":"")+v.toFixed(1).replace(".",",")+"%";
+  box.appendChild(el("h4","","Precio y señales · últimos "+s.days+" días"));box.appendChild(svg);
+  const p1=el("p","","Siguiendo las señales: ");const b1=el("b","",pc(s.strat));b1.style.color=s.strat>=s.hold?"var(--buy)":"var(--sell)";p1.append(b1," · Comprar y mantener: ");p1.append(el("b","",pc(s.hold)));
+  box.appendChild(p1);
+  box.appendChild(el("p","","Caída máxima: "+s.dd_s.toFixed(0)+"% vs "+s.dd_h.toFixed(0)+"% · "+s.trades+" operaciones (🟢 compra, 🔴 venta)"));
+  box.appendChild(el("small","","Simulación con pesos base y comisión 0,1%. No garantiza resultados futuros."));
+}
+async function live(){
+  for(const u of ["https://api.coinbase.com/v2/prices/BTC-USD/spot","https://api.kraken.com/0/public/Ticker?pair=XBTUSD"]){
+    try{const j=await(await fetch(u)).json();const v=j.data?+j.data.amount:+j.result.XXBTZUSD.c[0];if(v&&LIVE){LIVE.textContent="$"+fmt(v)+" ●";return}}catch(e){}
+  }
+}
 async function load(){
   $("st").textContent="Cargando…";
-  try{const r=await fetch("feed.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;D=await r.json();pulse();draw()}
+  try{const r=await fetch("feed.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;D=await r.json();pulse();sim();draw();live()}
   catch(e){$("st").textContent="No se pudo cargar el feed. Revisa que el workflow haya corrido al menos una vez."}
 }
-$("rf").onclick=load;load();setInterval(load,300000);
+$("rf").onclick=load;load();setInterval(load,300000);setInterval(live,30000);
 </script></body></html>
