@@ -41,6 +41,7 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 .sr .t{color:var(--mut);width:44px}.sr .p{margin-left:auto;text-align:right}
 .sum{padding:10px 16px;background:color-mix(in srgb,var(--mut) 12%,transparent);border-bottom:1px solid var(--bd);font-size:14px}
 .empty{padding:30px 16px;text-align:center;color:var(--mut)}
+.cmp{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}.cmp td,.cmp th{padding:4px 2px;text-align:right;border-bottom:1px solid var(--bd)}.cmp td:first-child,.cmp th:first-child{text-align:left}
 </style></head><body>
 <header>
 <div class="top"><b><i>₿</i> Feed</b><button id="rf">Actualizar</button></div>
@@ -100,6 +101,14 @@ function sim(){
   box.appendChild(p1);
   box.appendChild(el("p","","Caída máxima: "+s.dd_s.toFixed(0)+"% vs "+s.dd_h.toFixed(0)+"% · "+s.trades+" operaciones (🟢 compra, 🔴 venta)"));
   box.appendChild(el("small","","Simulación con pesos base y comisión 0,1%. No garantiza resultados futuros."));
+  if(D.pulse.cmp&&D.pulse.cmp.length){
+    const t=document.createElement("table");t.className="cmp";const hd=t.insertRow();
+    for(const x of["Variante","Total","1ª mitad","2ª mitad","Caída","Ops"]){const c=document.createElement("th");c.textContent=x;hd.appendChild(c)}
+    const best=Math.max(...D.pulse.cmp.filter(x=>x.name!=="Mantener").map(x=>x.ret));
+    for(const x of D.pulse.cmp){const r=t.insertRow();[(x.ret===best&&x.name!=="Mantener"?"⭐ ":"")+x.name,pc(x.ret),pc(x.h1),pc(x.h2),x.dd.toFixed(0)+"%",x.name==="Mantener"?"–":x.n].forEach(v=>{r.insertCell().textContent=v})}
+    const ct=el("h4","","Comparativa de variantes");ct.style.marginTop="14px";box.appendChild(ct);box.appendChild(t);
+    box.appendChild(el("small","","⭐ = mejor total. Fíate solo si también gana en las dos mitades: elegir la mejor sobre el mismo periodo puede ser casualidad."));
+  }
 }
 function view(v){$("home").hidden=v!=="home";$("sigv").hidden=v!=="sig";document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.v===v))}
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>view(b.dataset.v));
@@ -108,7 +117,7 @@ function sigs(){
   if(!S||!S.length){v.appendChild(el("div","empty","Aún no hay señales registradas. Se guarda una cada 2 horas."));return}
   const days={},pc=x=>(x>=0?"+":"")+x.toFixed(1).replace(".",",")+"%";
   for(const e of S){const d=new Date(e.ts),k=d.toDateString();(days[k]=days[k]||{d,items:[]}).items.push(e)}
-  const today=new Date().toDateString();
+  const today=new Date().toDateString();const hn=el("div","det","Toca una señal para ver por qué se tomó esa decisión.");hn.style.padding="10px 16px 0";v.appendChild(hn);
   for(const k of Object.keys(days).sort((a,b)=>days[b].d-days[a].d)){
     const g=days[k],it=g.items.sort((a,b)=>a.ts<b.ts?-1:1),isT=k===today,last=it[it.length-1];
     const ref=isT?(LIVEP||D.pulse.price):last.price;let ok=0,bad=0;
@@ -124,6 +133,7 @@ function sigs(){
       }
       r.appendChild(p);v.appendChild(r);
       if(e.gate){const gd=el("div","det","🚫 Bloqueada por: "+e.gate);gd.style.padding="0 16px 6px";v.appendChild(gd)}
+      const x=el("div","det",e.expl||("Indicadores: "+(e.det||"sin detalle guardado")));x.hidden=true;x.style.cssText="padding:6px 16px 10px;border-bottom:1px solid var(--bd)";r.style.cursor="pointer";r.onclick=()=>{x.hidden=!x.hidden};v.appendChild(x);
     }
     const s=el("div","sum",(isT?"Hasta ahora":"Cierre")+" $"+fmt(ref)+" · ✅ "+ok+(ok===1?" acierto":" aciertos")+" · ❌ "+bad+(bad===1?" error":" errores")+(ok+bad?" · "+Math.round(ok/(ok+bad)*100)+"%":""));
     v.appendChild(s);
