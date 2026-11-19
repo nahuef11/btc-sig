@@ -1,0 +1,19 @@
+{
+ "last": "ESPERAR",
+ "history": [
+  {
+   "ts": "2026-11-19T08:08:36+00:00",
+   "price": 63672.1,
+   "score": -5,
+   "action": "ESPERAR"
+  }
+ ],
+ "weights": {
+  "rsi": 0.165,
+  "macd": 0.283,
+  "trend": 0.139,
+  "bb": 0.122,
+  "fg": 0.187,
+  "news": 0.104
+ }
+}
