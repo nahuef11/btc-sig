@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Señales BTC: técnicos + Fear & Greed + noticias. Avisa por Telegram y se recalibra solo."""
-import json, os, math, urllib.request, urllib.parse, datetime as dt
+import json, os, re, math, zlib, struct, urllib.request, urllib.parse, datetime as dt
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 
@@ -134,12 +134,62 @@ def news_score(items):
     return (sum(r) / len(r)) if r else (0.0 if items else None)
 
 
+def simulate(p, dates, fgmap, days=365, fee=.001):
+    """Backtest: sigue las señales (pesos base, sin ajustar) vs comprar y mantener. Opera al cierre siguiente."""
+    st = len(p) - days
+    e, inm, eq, marks = 1.0, False, [1.0], []
+    for i in range(st, len(p)):
+        if i > st and inm: e *= p[i] / p[i - 1]
+        if i > st: eq.append(e)
+        s = combine(scores(p[max(0, i - 299):i + 1], fgmap.get(dates[i])), BASE)
+        if s >= TH and not inm: inm, e = True, e * (1 - fee); marks.append((i - st, "B"))
+        elif s <= -TH and inm: inm, e = False, e * (1 - fee); marks.append((i - st, "S"))
+    hold = [x / p[st] for x in p[st:]]
+    dd = lambda a: min(v / max(a[:j + 1]) - 1 for j, v in enumerate(a)) * 100
+    return {"strat": round((eq[-1] - 1) * 100, 1), "hold": round((hold[-1] - 1) * 100, 1),
+            "dd_s": round(dd(eq), 1), "dd_h": round(dd(hold), 1), "trades": len(marks), "days": days}, \
+        {"p": [round(x) for x in p[st:]], "m": marks, "d0": dates[st]}
+
+
+def write_pwa():
+    if os.path.exists("docs/icon-512.png"): return
+    os.makedirs("docs", exist_ok=True)
+    B = ["11110", "10001", "10001", "11110", "10001", "10001", "11110"]
+    for size in (192, 512):
+        c, r, cell = size / 2, size * .46, size // 11
+        ox, oy = (size - 5 * cell) // 2, (size - 7 * cell) // 2
+        raw = b""
+        for y in range(size):
+            row = bytearray([0])
+            for x in range(size):
+                ins = (x - c) ** 2 + (y - c) ** 2 <= r * r
+                gx, gy = (x - ox) // cell, (y - oy) // cell
+                white = ins and x >= ox and y >= oy and 0 <= gx < 5 and 0 <= gy < 7 and B[gy][gx] == "1"
+                row += bytes((255, 255, 255, 255) if white else (247, 147, 26, 255) if ins else (0, 0, 0, 0))
+            raw += bytes(row)
+        ch = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+        open(f"docs/icon-{size}.png", "wb").write(b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+                                                + ch(b"IDAT", zlib.compress(raw)) + ch(b"IEND", b""))
+    json.dump({"name": "BTC Feed", "short_name": "BTC", "start_url": "btc.html", "scope": "./", "display": "standalone",
+               "background_color": "#000000", "theme_color": "#000000",
+               "icons": [{"src": f"icon-{s}.png", "sizes": f"{s}x{s}", "type": "image/png"} for s in (192, 512)]},
+              open("docs/manifest.json", "w"))
+
+
+def norm(t):
+    return re.sub(r"[^a-z0-9]", "", re.sub(r" - [^-]{2,30}$", "", t.lower()))[:55]
+
+
 def write_feed(items, pulse, sigs):
     os.makedirs("docs", exist_ok=True)
     try: old = json.load(open("docs/feed.json"))["items"]
     except Exception: old = []
     d = {i["id"]: i for i in old + items + sigs}
-    allv = sorted(d.values(), key=lambda i: i["ts"], reverse=True)[:300]
+    allv, keys = [], set()
+    for i in sorted(d.values(), key=lambda i: i["ts"], reverse=True):
+        k = i["id"] if i["type"] == "signal" else norm(i["text"])
+        if k not in keys: keys.add(k); allv.append(i)
+    allv = allv[:300]
     json.dump({"updated": now().isoformat(timespec="seconds"), "pulse": pulse, "items": allv},
               open("docs/feed.json", "w"), ensure_ascii=False)
 
@@ -207,7 +257,9 @@ def main():
         for i in [x for x in items if x["impact"] and x["id"] not in seen][:3]:
             telegram(f"⚡ {i['source']}: {i['text']}\n{i['link']}")
     tot, ok = accuracy(st["history"])
-    write_feed(items, {"price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
+    sim, chart = simulate(p, dates, fgmap)
+    write_pwa()
+    write_feed(items, {"sim": sim, "chart": chart, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
                        "weights": {k: round(v, 3) for k, v in w.items()}}, sigs)
     st["weights"] = {k: round(v, 3) for k, v in w.items()}
     json.dump(st, open(STATE, "w"), indent=1)
