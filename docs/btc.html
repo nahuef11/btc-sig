@@ -82,6 +82,7 @@ function pulse(){
   const add=(k,v,s)=>{const e=el("span","chip",k+" ");const b=el("b","",v);if(s)b.style.color=s;e.appendChild(b);c.appendChild(e);return b};
   LIVE=add("BTC","$"+fmt(p.price));add("Señal",p.action+" ("+p.score+")",colr(p.action));
   if(p.fg!=null)add("Miedo/Codicia",p.fg);
+  if(p.gates&&p.gates.length)add("🚫 Filtro",p.gates.join("; "));
   if(p.acc&&p.acc[0])add("Aciertos",p.acc[1]+"/"+p.acc[0]);
   add("act.",ago(D.updated));
 }
@@ -95,7 +96,7 @@ function sim(){
   for(const[i,a]of c.m){const t=document.createElementNS(ns,"circle");t.setAttribute("cx",X(i));t.setAttribute("cy",Y(P[i]));t.setAttribute("r","3");t.setAttribute("fill",a==="B"?"var(--buy)":"var(--sell)");svg.appendChild(t)}
   const pc=v=>(v>=0?"+":"")+v.toFixed(1).replace(".",",")+"%";
   box.appendChild(el("h4","","Precio y señales · últimos "+s.days+" días"));box.appendChild(svg);
-  const p1=el("p","","Siguiendo las señales: ");const b1=el("b","",pc(s.strat));b1.style.color=s.strat>=s.hold?"var(--buy)":"var(--sell)";p1.append(b1," · Comprar y mantener: ");p1.append(el("b","",pc(s.hold)));
+  const p1=el("p","","Siguiendo las señales: ");const b1=el("b","",pc(s.strat));b1.style.color=s.strat>=s.hold?"var(--buy)":"var(--sell)";p1.append(b1,s.strat0!=null?" (sin filtros "+pc(s.strat0)+")":""," · Comprar y mantener: ");p1.append(el("b","",pc(s.hold)));
   box.appendChild(p1);
   box.appendChild(el("p","","Caída máxima: "+s.dd_s.toFixed(0)+"% vs "+s.dd_h.toFixed(0)+"% · "+s.trades+" operaciones (🟢 compra, 🔴 venta)"));
   box.appendChild(el("small","","Simulación con pesos base y comisión 0,1%. No garantiza resultados futuros."));
@@ -122,6 +123,7 @@ function sigs(){
         p.append("  "+(hit?"✅":"❌")+" "+pc(mv));
       }
       r.appendChild(p);v.appendChild(r);
+      if(e.gate){const gd=el("div","det","🚫 Bloqueada por: "+e.gate);gd.style.padding="0 16px 6px";v.appendChild(gd)}
     }
     const s=el("div","sum",(isT?"Hasta ahora":"Cierre")+" $"+fmt(ref)+" · ✅ "+ok+(ok===1?" acierto":" aciertos")+" · ❌ "+bad+(bad===1?" error":" errores")+(ok+bad?" · "+Math.round(ok/(ok+bad)*100)+"%":""));
     v.appendChild(s);
