@@ -33,22 +33,19 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 <header>
 <div class="top"><b><i>₿</i> Feed</b><button id="rf">Actualizar</button></div>
 <div class="pulse" id="pulse"></div>
-<div class="tabs" id="tabs"></div>
 </header>
 <main id="tl"></main><div id="st">Cargando…</div>
 <script>
 const $=id=>document.getElementById(id);
-const TABS=[["all","Todo"],["signal","Señales"],["impact","⚡ Alto impacto"],["ETF","ETF"],["Regulación","Regulación"],["Macro","Macro"],["Mercado","Mercado"],["Seguridad","Seguridad"],["Adopción","Adopción"]];
-let D=null,tab="all";
+let D=null;
 const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
 const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
 function ago(iso){const s=(Date.now()-new Date(iso))/1000;if(s<60)return"ahora";if(s<3600)return Math.floor(s/60)+" min";if(s<86400)return Math.floor(s/3600)+" h";return Math.floor(s/86400)+" d"}
 function hue(t){let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))%360;return"hsl("+h+" 55% 42%)"}
 function el(t,c,x){const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
-function tabs(){const t=$("tabs");t.textContent="";for(const[k,l]of TABS){const b=el("button",k===tab?"on":"",l);b.onclick=()=>{tab=k;tabs();draw()};t.appendChild(b)}}
 function draw(){
   const tl=$("tl");tl.textContent="";if(!D)return;
-  const L=D.items.filter(i=>tab==="all"||(tab==="signal"&&i.type==="signal")||(tab==="impact"&&i.impact)||(i.topics||[]).includes(tab));
+  const L=D.items;
   $("st").textContent=L.length?"":"Nada por aquí todavía.";
   for(const i of L){
     const r=el("article","tw"),a=el("div","av",i.type==="signal"?"₿":i.source[0].toUpperCase());a.style.background=i.type==="signal"?"#f7931a":hue(i.source);
@@ -79,5 +76,5 @@ async function load(){
   try{const r=await fetch("feed.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;D=await r.json();pulse();draw()}
   catch(e){$("st").textContent="No se pudo cargar el feed. Revisa que el workflow haya corrido al menos una vez."}
 }
-$("rf").onclick=load;tabs();load();setInterval(load,300000);
+$("rf").onclick=load;load();setInterval(load,300000);
 </script></body></html>
