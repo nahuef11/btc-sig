@@ -180,6 +180,19 @@ def norm(t):
     return re.sub(r"[^a-z0-9]", "", re.sub(r" - [^-]{2,30}$", "", t.lower()))[:55]
 
 
+def log_signal(price, score, action, det):
+    """Una señal cada 2 horas (docs/signals.json), para el registro por días."""
+    os.makedirs("docs", exist_ok=True)
+    try: L = json.load(open("docs/signals.json"))
+    except Exception: L = []
+    n = now()
+    slot = n.strftime("%Y-%m-%d") + str(n.hour // 2)
+    if not L or L[-1].get("slot") != slot:
+        L.append({"slot": slot, "ts": n.isoformat(timespec="seconds"), "price": round(price), "score": score,
+                  "action": action, "det": det})
+    json.dump(L[-400:], open("docs/signals.json", "w"), ensure_ascii=False)
+
+
 def write_feed(items, pulse, sigs):
     os.makedirs("docs", exist_ok=True)
     try: old = json.load(open("docs/feed.json"))["items"]
@@ -236,6 +249,7 @@ def main():
 
     det = " | ".join(f"{k} {v:+.2f}" for k, v in sc.items())
     sigs, ts0 = [], st["history"][-1]["ts"]
+    log_signal(p[-1], score, action, det)
     if action != st.get("last"):
         sigs.append({"id": "sig-" + ts0, "type": "signal", "source": "Señales BTC", "action": action, "detail": det,
                      "text": f"{action} · puntuación {score} · BTC {p[-1]:,.0f} USD", "ts": ts0})
