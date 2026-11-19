@@ -31,16 +31,27 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 .det{color:var(--mut);font-size:13px}
 #st{padding:30px 16px;text-align:center;color:var(--mut)}
 .sim{padding:12px 16px;border-bottom:1px solid var(--bd)}.sim h4{margin:0 0 6px;font-size:15px}.ch{width:100%;height:auto;display:block}.sim p{margin:4px 0;font-size:13px;color:var(--mut)}.sim b{font-size:14px}.sim small{font-size:12px;color:var(--mut)}
+#fw{height:50dvh;overflow-y:auto;border-top:1px solid var(--bd)}
+.fh{padding:8px 16px;font-weight:700;font-size:14px;color:var(--mut)}
+#fw .tw{padding:8px 12px;gap:10px}#fw .av{flex:0 0 32px;height:32px;font-size:13px}
+#fw .tx{font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:1px 0 4px}
+#fw .hd,#fw .tags{font-size:12px}
+.dh{padding:14px 16px 4px;font-weight:700;text-transform:capitalize}
+.sr{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--bd);font-size:14px}
+.sr .t{color:var(--mut);width:44px}.sr .p{margin-left:auto;text-align:right}
+.sum{padding:10px 16px;background:color-mix(in srgb,var(--mut) 12%,transparent);border-bottom:1px solid var(--bd);font-size:14px}
+.empty{padding:30px 16px;text-align:center;color:var(--mut)}
 </style></head><body>
 <header>
 <div class="top"><b><i>₿</i> Feed</b><button id="rf">Actualizar</button></div>
 <div class="pulse" id="pulse"></div>
+<div class="tabs"><button data-v="home" class="on">Inicio</button><button data-v="sig">Señales</button></div>
 </header>
-<section class="sim" id="sim"></section>
-<main id="tl"></main><div id="st">Cargando…</div>
+<div id="home"><section class="sim" id="sim"></section><div class="fh">Noticias</div><div id="fw"><main id="tl"></main><div id="st">Cargando…</div></div></div>
+<div id="sigv" hidden></div>
 <script>
 const $=id=>document.getElementById(id);
-let D=null,LIVE=null;
+let D=null,LIVE=null,S=null,LIVEP=null;
 const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
 const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
 function ago(iso){const s=(Date.now()-new Date(iso))/1000;if(s<60)return"ahora";if(s<3600)return Math.floor(s/60)+" min";if(s<86400)return Math.floor(s/3600)+" h";return Math.floor(s/86400)+" d"}
@@ -89,14 +100,41 @@ function sim(){
   box.appendChild(el("p","","Caída máxima: "+s.dd_s.toFixed(0)+"% vs "+s.dd_h.toFixed(0)+"% · "+s.trades+" operaciones (🟢 compra, 🔴 venta)"));
   box.appendChild(el("small","","Simulación con pesos base y comisión 0,1%. No garantiza resultados futuros."));
 }
+function view(v){$("home").hidden=v!=="home";$("sigv").hidden=v!=="sig";document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.v===v))}
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>view(b.dataset.v));
+function sigs(){
+  const v=$("sigv");v.textContent="";
+  if(!S||!S.length){v.appendChild(el("div","empty","Aún no hay señales registradas. Se guarda una cada 2 horas."));return}
+  const days={},pc=x=>(x>=0?"+":"")+x.toFixed(1).replace(".",",")+"%";
+  for(const e of S){const d=new Date(e.ts),k=d.toDateString();(days[k]=days[k]||{d,items:[]}).items.push(e)}
+  const today=new Date().toDateString();
+  for(const k of Object.keys(days).sort((a,b)=>days[b].d-days[a].d)){
+    const g=days[k],it=g.items.sort((a,b)=>a.ts<b.ts?-1:1),isT=k===today,last=it[it.length-1];
+    const ref=isT?(LIVEP||D.pulse.price):last.price;let ok=0,bad=0;
+    v.appendChild(el("div","dh",g.d.toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"})));
+    for(const e of it){
+      const r=el("div","sr");r.appendChild(el("span","t",new Date(e.ts).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})));
+      const b=el("span","bg",e.action);b.style.background=colr(e.action);r.appendChild(b);
+      r.appendChild(el("span","",(e.score>0?"+":"")+e.score));
+      const p=el("span","p","$"+fmt(e.price));
+      if(e.action!=="ESPERAR"&&(isT||e!==last)){
+        const mv=(ref/e.price-1)*100,hit=e.action==="COMPRAR"?mv>0:mv<0;hit?ok++:bad++;
+        p.append("  "+(hit?"✅":"❌")+" "+pc(mv));
+      }
+      r.appendChild(p);v.appendChild(r);
+    }
+    const s=el("div","sum",(isT?"Hasta ahora":"Cierre")+" $"+fmt(ref)+" · ✅ "+ok+(ok===1?" acierto":" aciertos")+" · ❌ "+bad+(bad===1?" error":" errores")+(ok+bad?" · "+Math.round(ok/(ok+bad)*100)+"%":""));
+    v.appendChild(s);
+  }
+}
 async function live(){
   for(const u of ["https://api.coinbase.com/v2/prices/BTC-USD/spot","https://api.kraken.com/0/public/Ticker?pair=XBTUSD"]){
-    try{const j=await(await fetch(u)).json();const v=j.data?+j.data.amount:+j.result.XXBTZUSD.c[0];if(v&&LIVE){LIVE.textContent="$"+fmt(v)+" ●";return}}catch(e){}
+    try{const j=await(await fetch(u)).json();const v=j.data?+j.data.amount:+j.result.XXBTZUSD.c[0];if(v&&LIVE){LIVE.textContent="$"+fmt(v)+" ●";LIVEP=v;return}}catch(e){}
   }
 }
 async function load(){
   $("st").textContent="Cargando…";
-  try{const r=await fetch("feed.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;D=await r.json();pulse();sim();draw();live()}
+  try{const r=await fetch("feed.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;D=await r.json();pulse();sim();draw();try{const q=await fetch("signals.json?t="+Date.now(),{cache:"no-store"});S=q.ok?await q.json():null}catch(e){S=null}sigs();live()}
   catch(e){$("st").textContent="No se pudo cargar el feed. Revisa que el workflow haya corrido al menos una vez."}
 }
 $("rf").onclick=load;load();setInterval(load,300000);setInterval(live,30000);
