@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#000000">
+<title>BTC Feed</title>
+<style>
+:root{color-scheme:dark light;--bg:#fff;--tx:#0f1419;--mut:#536471;--bd:#eff3f4;--acc:#1d9bf0;--buy:#00ba7c;--sell:#f4212e;--wait:#d9a400}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--tx:#e7e9ea;--mut:#71767b;--bd:#2f3336;--buy:#00d68f;--sell:#ff5a65;--wait:#f5c542}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;max-width:600px;margin-inline:auto;min-height:100vh;border-inline:1px solid var(--bd)}
+header{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--bd);padding-top:env(safe-area-inset-top,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;padding:10px 16px}
+.top b{font-size:20px}.top b i{color:#f7931a;font-style:normal}
+#rf{background:none;border:0;color:var(--acc);font:inherit;font-weight:700;cursor:pointer}
+.pulse{display:flex;gap:8px;padding:0 16px 10px;flex-wrap:wrap}
+.chip{border:1px solid var(--bd);border-radius:999px;padding:3px 10px;font-size:13px;color:var(--mut)}
+.chip b{color:var(--tx)}
+.tabs{display:flex;overflow-x:auto;scrollbar-width:none}
+.tabs button{flex:0 0 auto;background:none;border:0;color:var(--mut);font:inherit;font-weight:600;padding:12px 16px;cursor:pointer;border-bottom:3px solid transparent}
+.tabs button.on{color:var(--tx);border-color:var(--acc)}
+.tw{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--bd)}
+.av{flex:0 0 40px;height:40px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700}
+.bd{min-width:0;flex:1}
+.hd{color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hd b{color:var(--tx)}
+.tx{margin:2px 0 6px;overflow-wrap:anywhere}
+.tags{display:flex;gap:10px;flex-wrap:wrap;font-size:14px}.tags span{color:var(--acc)}
+.tags em{font-style:normal;color:var(--mut)}
+.bg{display:inline-block;border-radius:6px;padding:1px 8px;font-weight:700;font-size:13px;color:#fff;margin-right:6px}
+a.go{color:var(--mut);font-size:13px;text-decoration:none}
+.det{color:var(--mut);font-size:13px}
+#st{padding:30px 16px;text-align:center;color:var(--mut)}
+</style></head><body>
+<header>
+<div class="top"><b><i>₿</i> Feed</b><button id="rf">Actualizar</button></div>
+<div class="pulse" id="pulse"></div>
+<div class="tabs" id="tabs"></div>
+</header>
+<main id="tl"></main><div id="st">Cargando…</div>
+<script>
+const $=id=>document.getElementById(id);
+const TABS=[["all","Todo"],["signal","Señales"],["impact","⚡ Alto impacto"],["ETF","ETF"],["Regulación","Regulación"],["Macro","Macro"],["Mercado","Mercado"],["Seguridad","Seguridad"],["Adopción","Adopción"]];
+let D=null,tab="all";
+const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
+const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
+function ago(iso){const s=(Date.now()-new Date(iso))/1000;if(s<60)return"ahora";if(s<3600)return Math.floor(s/60)+" min";if(s<86400)return Math.floor(s/3600)+" h";return Math.floor(s/86400)+" d"}
+function hue(t){let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))%360;return"hsl("+h+" 55% 42%)"}
+function el(t,c,x){const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function tabs(){const t=$("tabs");t.textContent="";for(const[k,l]of TABS){const b=el("button",k===tab?"on":"",l);b.onclick=()=>{tab=k;tabs();draw()};t.appendChild(b)}}
+function draw(){
+  const tl=$("tl");tl.textContent="";if(!D)return;
+  const L=D.items.filter(i=>tab==="all"||(tab==="signal"&&i.type==="signal")||(tab==="impact"&&i.impact)||(i.topics||[]).includes(tab));
+  $("st").textContent=L.length?"":"Nada por aquí todavía.";
+  for(const i of L){
+    const r=el("article","tw"),a=el("div","av",i.type==="signal"?"₿":i.source[0].toUpperCase());a.style.background=i.type==="signal"?"#f7931a":hue(i.source);
+    const b=el("div","bd"),h=el("div","hd");h.append(el("b","",i.source)," @"+i.source.toLowerCase().replace(/[^a-z0-9]/g,"")+" · "+ago(i.ts));
+    b.appendChild(h);
+    const t=el("div","tx");
+    if(i.type==="signal"){const g=el("span","bg",i.action);g.style.background=colr(i.action);t.append(g,i.text)}else t.textContent=i.text;
+    b.appendChild(t);
+    if(i.detail)b.appendChild(el("div","det",i.detail));
+    const g=el("div","tags");
+    for(const x of i.topics||[])g.appendChild(el("span","","#"+x));
+    if(i.impact)g.appendChild(el("em","","⚡ alto impacto"));
+    if(i.sent)g.appendChild(el("em","",i.sent>0?"▲ positivo":"▼ negativo"));
+    if(i.link){const l=el("a","go","Abrir ↗");l.href=i.link;l.target="_blank";l.rel="noopener noreferrer";g.appendChild(l)}
+    b.appendChild(g);r.append(a,b);tl.appendChild(r);
+  }
+}
+function pulse(){
+  const p=D.pulse,c=$("pulse");c.textContent="";
+  const add=(k,v,s)=>{const e=el("span","chip",k+" ");const b=el("b","",v);if(s)b.style.color=s;e.appendChild(b);c.appendChild(e)};
+  add("BTC","$"+fmt(p.price));add("Señal",p.action+" ("+p.score+")",colr(p.action));
+  if(p.fg!=null)add("Miedo/Codicia",p.fg);
+  if(p.acc&&p.acc[0])add("Aciertos",p.acc[1]+"/"+p.acc[0]);
+  add("act.",ago(D.updated));
+}
+async function load(){
+  $("st").textContent="Cargando…";
+  try{const r=await fetch("feed.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;D=await r.json();pulse();draw()}
+  catch(e){$("st").textContent="No se pudo cargar el feed. Revisa que el workflow haya corrido al menos una vez."}
+}
+$("rf").onclick=load;tabs();load();setInterval(load,300000);
+</script></body></html>
