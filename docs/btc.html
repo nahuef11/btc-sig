@@ -60,6 +60,8 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 .chev{color:var(--mut);width:14px;text-align:center}
 .tb{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;border-bottom:1px solid var(--bd)}
 #c1{display:flex;gap:4px}.tb .chp{margin:0;padding:3px 9px;font-size:12px}
+.dh{display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer}.dsum{font-weight:400;font-size:13px;color:var(--mut);text-transform:none}
+.bg{white-space:nowrap}.xp,.sgt{white-space:pre-line}
 .xp{padding:6px 16px 10px;border-bottom:1px solid var(--bd)}
 #newsv #fw{height:auto;overflow:visible;border-top:0}
 </style></head><body>
@@ -95,8 +97,9 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 const $=id=>document.getElementById(id);
 const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
 const pc=x=>(x>=0?"+":"")+x.toFixed(1).replace(".",",")+"%";
+const lab=a=>a==="COMPRAR"?"COMPRAR · LONG":a==="VENDER"?"VENDER · SHORT":a;
 const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
-let D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart",HL=null,WS=null,WSOK=false,WSN=0,DT=0;
+let OPEN=null,D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart",HL=null,WS=null,WSOK=false,WSN=0,DT=0;
 let CFG={tf:"1h",n:100,ind:["sma20","vol","sig"],iv:2};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem("btcfg")||"{}"))}catch(e){}
 const save=()=>{try{localStorage.setItem("btcfg",JSON.stringify(CFG))}catch(e){}};
@@ -125,11 +128,12 @@ function draw(){
 }
 
 
+function lvText(L,a){const B=a==="COMPRAR";return"Spot: "+(B?"stop ":"invalidación sobre ")+fmt(L.ss)+" · objetivo "+fmt(L.os)+"\nFuturos: "+(B?"LONG":"SHORT")+" · stop "+fmt(L.sl)+" · objetivos "+fmt(L.tp1)+" / "+fmt(L.tp2)+" · apalancamiento máx. sugerido "+L.lev+"x"}
 /* ---------- Inicio ---------- */
 function pulse(){
   const p=D.pulse,c=$("pulse");c.textContent="";
   const add=(k,v,s)=>{const e=el("span","chip",k+" ");const b=el("b","",v);if(s)b.style.color=s;e.appendChild(b);c.appendChild(e);return b};
-  LIVE=add("BTC","$"+fmt(p.price));add("Señal",p.action,colr(p.action));
+  LIVE=add("BTC","$"+fmt(p.price));add("Señal",lab(p.action),colr(p.action));
   if(p.gates&&p.gates.length)add("🚫 Filtro",p.gates.join("; "));
   add("act.",ago(D.updated));
 }
@@ -140,8 +144,8 @@ function fgCard(){
 }
 function sigCard(){
   const c=$("sg"),p=D.pulse;if(!p.expl){c.hidden=true;return}c.hidden=false;c.textContent="";
-  const h=el("div","sgh"),b=el("span","bg",p.action);b.style.background=colr(p.action);h.append(b,el("b","","Señal actual"));
-  c.append(h,el("div","sgt",p.expl));
+  const h=el("div","sgh"),b=el("span","bg",lab(p.action));b.style.background=colr(p.action);h.append(b,el("b","","Señal actual"));
+  c.append(h,el("div","sgt",p.expl+(p.lv?"\n"+lvText(p.lv,p.action):"")));
 }
 
 /* ---------- Gráfico ---------- */
@@ -269,7 +273,7 @@ function sigs(){
   const n=T.ok+T.bad,rec=record(all,cur),box=el("div","blk");
   box.appendChild(el("h4","","Resultados"));
   box.appendChild(el("div","big",n?Math.round(T.ok/n*100)+"% de aciertos":"Aún sin decisiones evaluadas"));
-  if(n)box.appendChild(el("div","det",T.ok+" de "+n+" decisiones · Comprar "+T.B[0]+"/"+T.B[1]+" · Vender "+T.V[0]+"/"+T.V[1]+" · Esperar "+T.W[0]+"/"+T.W[1]));
+  if(n)box.appendChild(el("div","det",T.ok+" de "+n+" decisiones · Comprar/Long "+T.B[0]+"/"+T.B[1]+" · Vender/Short "+T.V[0]+"/"+T.V[1]+" · Esperar "+T.W[0]+"/"+T.W[1]));
   box.appendChild(el("div","det","Comprar acierta si el precio sube hasta el cierre del día, vender si baja, y esperar si se mueve menos de un 1,5 %."));
   const rc=el("div","rec");
   if(rec.ops){
@@ -287,18 +291,22 @@ function sigs(){
   for(const k of Object.keys(days).sort((a,b)=>days[b].d-days[a].d)){
     const g=days[k],isT=k===today,shown=g.items.filter(e=>new Date(e.ts).getHours()%CFG.iv===0);
     if(!shown.length)continue;
-    v.appendChild(el("div","dh",g.d.toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"})));
+    if(!OPEN)OPEN=new Set([today]);
+    const wrap=el("div","dg"),dt0=g.d.toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});wrap.hidden=!OPEN.has(k);
+    const dh=el("div","dh"),dl=el("span","",(OPEN.has(k)?"▾ ":"▸ ")+dt0),dr=el("span","dsum",g.ok+g.bad?"✅ "+g.ok+" · ❌ "+g.bad+" · "+Math.round(g.ok/(g.ok+g.bad)*100)+"%":"");
+    dh.append(dl,dr);dh.onclick=()=>{OPEN.has(k)?OPEN.delete(k):OPEN.add(k);const o=OPEN.has(k);wrap.hidden=!o;dl.textContent=(o?"▾ ":"▸ ")+dt0};
+    v.append(dh,wrap);
     for(const e of shown){
       const r=el("div","sr");r.appendChild(el("span","t",new Date(e.ts).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})));
-      const b=el("span","bg",e.action);b.style.background=colr(e.action);r.appendChild(b);
+      const b=el("span","bg",lab(e.action));b.style.background=colr(e.action);r.appendChild(b);
       if(e.action!=="ESPERAR")r.appendChild(el("span","det",Math.abs(e.score)>=60?"fuerte":"moderada"));
       const p=el("span","p","$"+fmt(e.price)),q=res.get(e);if(q)p.append("  "+(q.hit?"✅":"❌")+" "+pc(q.mv));
-      const ch=el("span","chev","▸"),x=el("div","det xp",e.expl||"Explicación no disponible para señales antiguas.");x.hidden=true;
+      const ch=el("span","chev","▸"),x=el("div","det xp",(e.expl||"Explicación no disponible para señales antiguas.")+(e.lv?"\n"+lvText(e.lv,e.action):""));x.hidden=true;
       r.style.cursor="pointer";r.onclick=()=>{x.hidden=!x.hidden;ch.textContent=x.hidden?"▸":"▾"};
-      r.append(p,ch);v.append(r,x);
+      r.append(p,ch);wrap.append(r,x);
     }
     const ok=g.ok,bad=g.bad;
-    v.appendChild(el("div","sum",(isT?"Hasta ahora":"Cierre")+" $"+fmt(g.ref)+" · ✅ "+ok+(ok===1?" acierto":" aciertos")+" · ❌ "+bad+(bad===1?" error":" errores")+(ok+bad?" · "+Math.round(ok/(ok+bad)*100)+"%":"")));
+    wrap.appendChild(el("div","sum",(isT?"Hasta ahora":"Cierre")+" $"+fmt(g.ref)+" · ✅ "+ok+(ok===1?" acierto":" aciertos")+" · ❌ "+bad+(bad===1?" error":" errores")+(ok+bad?" · "+Math.round(ok/(ok+bad)*100)+"%":"")));
   }
 }
 
