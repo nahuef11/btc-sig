@@ -285,7 +285,7 @@ PHR = {
 }
 
 
-def explain(sc, W, score, action, raw, why):
+def explain(sc, W, score, action, raw, why, short=False):
     """Explicación en lenguaje claro de por qué se tomó la decisión (sin cifras)."""
     order = sorted(sc, key=lambda k: -abs(sc[k] * W[k]))
     up = [k for k in order if sc[k] >= .2 and k in PHR]
@@ -295,6 +295,7 @@ def explain(sc, W, score, action, raw, why):
     elif action == "VENDER": head = "Se recomienda vender: la mayoría de las señales apuntan a la baja."
     else: head = "Se recomienda esperar: las señales no son lo bastante claras y se contradicen."
     nu, nd = (3, 1) if action == "COMPRAR" else (1, 3) if action == "VENDER" else (2, 2)
+    if short: nu, nd = (2, 1) if action == "COMPRAR" else (1, 2) if action == "VENDER" else (1, 1)
     t = head
     if up: t += " Apuntan al alza: " + "; ".join(PHR[k][0] for k in up[:nu]) + "."
     if down: t += " Apuntan a la baja: " + "; ".join(PHR[k][1] for k in down[:nd]) + "."
@@ -411,12 +412,111 @@ def write_feed(items, pulse, sigs):
               open("docs/feed.json", "w"), ensure_ascii=False)
 
 
-def telegram(text):
-    tok, chat = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+def telegram(text, chat=None):
+    tok, chat = os.getenv("TELEGRAM_TOKEN"), chat or os.getenv("TELEGRAM_CHAT_ID")
     if not tok or not chat:
         print(text); return
-    get(f"https://api.telegram.org/bot{tok}/sendMessage",
-        urllib.parse.urlencode({"chat_id": chat, "text": text}).encode())
+    try:
+        get(f"https://api.telegram.org/bot{tok}/sendMessage",
+            urllib.parse.urlencode({"chat_id": chat, "text": text[:4000]}).encode())
+    except Exception as e: print("Telegram falló:", e)
+
+
+def admin(text):
+    """Informes y alertas de noticias: solo a tu chat personal (TELEGRAM_ADMIN_CHAT_ID), nunca al canal."""
+    chat = os.getenv("TELEGRAM_ADMIN_CHAT_ID")
+    if chat: telegram(text, chat)
+    else: print(text)
+
+
+def telegram_photo(path, caption):
+    tok, chat = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+    if not tok or not chat:
+        print(caption); return
+    b = "----btc" + os.urandom(8).hex()
+    parts = [f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+             for k, v in (("chat_id", chat), ("caption", caption[:1020]))]
+    parts.append(f'--{b}\r\nContent-Disposition: form-data; name="photo"; filename="btc.png"\r\nContent-Type: image/png\r\n\r\n'.encode()
+                 + open(path, "rb").read() + b"\r\n")
+    parts.append(f"--{b}--\r\n".encode())
+    req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendPhoto", data=b"".join(parts),
+                                 headers={"Content-Type": f"multipart/form-data; boundary={b}"})
+    urllib.request.urlopen(req, timeout=60)
+
+
+def make_chart(path, rows, action, price, a, log):
+    """Velas de 4 h con EMA50, líneas de tendencia (soporte/resistencia), flechas de señales y stop/objetivo."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
+    R = rows[-90:]
+    n = len(R)
+    BG, FG, UP, DN = "#0f1115", "#e7e9ea", "#16c784", "#ea3943"
+    buy = action == "COMPRAR"
+    stop, tgt = (price - 2 * a, price + 3 * a) if buy else (price + 2 * a, price - 3 * a)
+    lo, hi = min(min(r[3] for r in R), stop, tgt), max(max(r[2] for r in R), stop, tgt)
+    off = (hi - lo) * .05
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=100, facecolor=BG)
+    ax.set_facecolor(BG)
+    for i, r in enumerate(R):
+        col = UP if r[4] >= r[1] else DN
+        ax.vlines(i, r[3], r[2], color=col, linewidth=1)
+        ax.bar(i, max(abs(r[4] - r[1]), (hi - lo) * .002), bottom=min(r[1], r[4]), width=.65, color=col)
+    ax.plot(range(n), ema([r[4] for r in rows], 50)[-n:], color="#f5c542", lw=1.2, label="EMA 50")
+    for key, col, name in ((3, UP, "Soporte"), (2, DN, "Resistencia")):
+        f = max if key == 2 else min
+        ps = [i for i in range(4, n - 4) if R[i][key] == f(R[j][key] for j in range(i - 4, i + 5))][-2:]
+        if len(ps) == 2:
+            (x1, x2), (y1, y2) = ps, (R[ps[0]][key], R[ps[1]][key])
+            m = (y2 - y1) / (x2 - x1)
+            ax.plot([x1, n + 4], [y1, y1 + m * (n + 4 - x1)], color=col, ls="--", lw=1.5, alpha=.85, label=name)
+    prev = None
+    for e in sorted(log, key=lambda e: e["ts"]):
+        ch, prev = e["action"] != prev, e["action"]
+        if not ch or e["action"] == "ESPERAR": continue
+        t = dt.datetime.fromisoformat(e["ts"]).timestamp()
+        idx = max((i for i in range(n) if R[i][0] <= t), default=None)
+        if idx is None or idx >= n - 1: continue
+        b_ = e["action"] == "COMPRAR"
+        ax.scatter(idx, R[idx][3] - off * .8 if b_ else R[idx][2] + off * .8, marker="^" if b_ else "v", s=110,
+                   color=UP if b_ else DN, zorder=5)
+    x, c = n - 1, UP if buy else DN
+    ax.annotate(action, xy=(x, R[-1][3] - off * .2 if buy else R[-1][2] + off * .2),
+                xytext=(x, R[-1][3] - off * 2.4 if buy else R[-1][2] + off * 2.4), ha="center", va="top" if buy else "bottom",
+                color=c, fontsize=11, fontweight="bold", arrowprops=dict(arrowstyle="-|>", color=c, lw=3, mutation_scale=22))
+    for y, col, lab in ((stop, DN, "Stop" if buy else "Invalidación"), (tgt, UP, "Objetivo")):
+        ax.hlines(y, n - 14, n + 4, color=col, ls=":", lw=1.3)
+        ax.text(n + 4.5, y, f"{lab} {y:,.0f}", color=col, fontsize=9, va="center")
+    ax.set_xlim(-1, n + 14)
+    ax.set_ylim(lo - off * 3.2, hi + off * 3.2)
+    ticks = list(range(0, n, 15))
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([dt.datetime.fromtimestamp(R[i][0], dt.timezone.utc).strftime("%d/%m") for i in ticks])
+    ax.yaxis.tick_right()
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
+    ax.tick_params(colors="#8899a6")
+    ax.grid(color="#1f2328", lw=.6)
+    for sp in ax.spines.values(): sp.set_color("#2f3336")
+    ax.set_title(f"BTC/USD · 4h · {action} a ${price:,.0f}", color=FG, fontsize=14, loc="left")
+    ax.legend(loc="upper left", facecolor=BG, edgecolor="none", labelcolor=FG, fontsize=9)
+    fig.text(.01, .01, "Información orientativa · no es asesoramiento financiero", color="#8899a6", fontsize=8)
+    fig.savefig(path, facecolor=BG, bbox_inches="tight")
+    plt.close(fig)
+
+
+def publish_signal(action, price, a, expl, rows, test=False, real=None):
+    lv = (f"Stop sugerido {price - 2 * a:,.0f} · objetivo {price + 3 * a:,.0f}" if action == "COMPRAR"
+          else f"Invalidación sobre {price + 2 * a:,.0f} · objetivo bajista {price - 3 * a:,.0f}")
+    cap = ((f"🧪 PRUEBA del canal (no es una señal real; ahora mismo la señal es {real})\n\n" if test else "")
+           + f"{'🟢' if action == 'COMPRAR' else '🔴'} {action} BTC · ${price:,.0f}\n\n{expl}\n\n{lv}\n\n"
+           "⚠️ Información orientativa, no es asesoramiento financiero.")
+    try:
+        make_chart("chart.png", rows, action, price, a, load_log())
+        telegram_photo("chart.png", cap)
+    except Exception as e:
+        print("Gráfico o envío con foto falló:", e)
+        telegram(cap)
 
 
 def evaluate(hist):
@@ -470,10 +570,10 @@ def main():
         sigs.append({"id": "sig-" + ts0, "type": "signal", "source": "Señales BTC", "action": action, "detail": expl,
                      "text": f"{action}" + (f" (señal {raw} bloqueada: {'; '.join(why)})" if why else "") + f" · puntuación {score} · BTC {p[-1]:,.0f} USD", "ts": ts0})
         if action != "ESPERAR":
-            a, px = atr(rd), p[-1]
-            lv = (f"Stop sugerido {px - 2 * a:,.0f} · objetivo {px + 3 * a:,.0f}" if action == "COMPRAR"
-                  else f"Invalidación sobre {px + 2 * a:,.0f} · objetivo bajista {px - 3 * a:,.0f}")
-            telegram(f"{'🟢' if action == 'COMPRAR' else '🔴'} {action} BTC\nPrecio {px:,.0f} USD · puntuación {score}\n{lv} (ATR diario)\n{expl}")
+            publish_signal(action, p[-1], atr(rd), explain(sc, {**w, **xw}, score, action, raw, why, short=True), r4 or rd)
+    if os.getenv("TEST_POST") == "true":
+        publish_signal(action if action != "ESPERAR" else "COMPRAR", p[-1], atr(rd),
+                       explain(sc, {**w, **xw}, score, action, raw, why, short=True), r4 or rd, test=True, real=action)
     st["last"] = action
 
     n = now()
@@ -483,13 +583,13 @@ def main():
         ws = ", ".join(f"{k} {v * 100:.0f}%" for k, v in w.items())
         hi = ", ".join(f"{k} {h}% ({c})" for k, (h, c) in info.items())
         xi = ", ".join(f"{k} {h}% ({c})" for k, (h, c) in xinfo.items()) or "aún sin datos"
-        telegram(f"📊 Informe semanal BTC\nPrecio {p[-1]:,.0f} · puntuación {score} ({action})\nAciertos en vivo: {live}\n"
+        admin(f"📊 Informe semanal BTC\nPrecio {p[-1]:,.0f} · puntuación {score} ({action})\nAciertos en vivo: {live}\n"
                  f"Aciertos históricos por indicador: {hi}\nPesos actuales: {ws}\nFiltros nuevos a 24 h: {xi}")
     try: seen = {i["id"] for i in json.load(open("docs/feed.json"))["items"]}
     except Exception: seen = None
     if seen is not None:
         for i in [x for x in items if x["impact"] and x["id"] not in seen][:3]:
-            telegram(f"⚡ {i['source']}: {i['text']}\n{i['link']}")
+            admin(f"⚡ {i['source']}: {i['text']}\n{i['link']}")
     tot, ok = accuracy(st["history"])
     try:
         for v in compare(rd, p, dates, fgmap): print("COMPARATIVA", v)  # solo en el registro del workflow
