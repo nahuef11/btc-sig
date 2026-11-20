@@ -242,7 +242,14 @@ function record(all,cur){
     else if(x.action==="VENDER"&&inm){inm=false;e*=.999;ops++}
   }
   if(inm&&prev!=null)e*=cur/prev;
-  return{strat:(e-1)*100,hold:(cur/all[0].price-1)*100,ops,days:(Date.now()-new Date(all[0].ts))/864e5,since:new Date(all[0].ts)};
+  let e2=1,pos=0,p2=null,opsF=0;
+  for(const x of all){
+    if(p2!=null&&pos)e2*=1+pos*(x.price/p2-1);p2=x.price;
+    const np=x.action==="COMPRAR"?1:x.action==="VENDER"?-1:pos;
+    if(np!==pos){e2*=1-.001*Math.abs(np-pos);pos=np;opsF++}
+  }
+  if(pos&&p2!=null)e2*=1+pos*(cur/p2-1);
+  return{fut:(e2-1)*100,opsF,strat:(e-1)*100,hold:(cur/all[0].price-1)*100,ops,days:(Date.now()-new Date(all[0].ts))/864e5,since:new Date(all[0].ts)};
 }
 function sigs(){
   const v=$("sigv");v.textContent="";
@@ -266,10 +273,11 @@ function sigs(){
   box.appendChild(el("div","det","Comprar acierta si el precio sube hasta el cierre del día, vender si baja, y esperar si se mueve menos de un 1,5 %."));
   const rc=el("div","rec");
   if(rec.ops){
-    rc.append("Siguiendo las señales desde el "+rec.since.toLocaleDateString("es-ES",{day:"numeric",month:"short"})+": ");
+    rc.append("Spot (comprar y vender) desde el "+rec.since.toLocaleDateString("es-ES",{day:"numeric",month:"short"})+": ");
     const b=el("b","",pc(rec.strat));b.style.color=rec.strat>=0?"var(--buy)":"var(--sell)";rc.append(b," · Mantener: "+pc(rec.hold));
   }else rc.append("Aún no hubo ninguna compra ni venta que seguir.");
   box.appendChild(rc);
+  if(rec.opsF){const f=el("div","rec");f.append("Futuros (largo y corto, sin apalancar): ");const bf=el("b","",pc(rec.fut));bf.style.color=rec.fut>=0?"var(--buy)":"var(--sell)";f.append(bf);box.appendChild(f)}
   if(rec.days<7)box.appendChild(el("div","det","Registro todavía corto ("+Math.max(1,Math.round(rec.days))+" d): los porcentajes pueden cambiar mucho."));
   v.appendChild(box);
   const iv=el("div","blk");iv.appendChild(el("div","cl","Mostrar una señal cada"));const ci=el("div");ci.id="civ";iv.appendChild(ci);
