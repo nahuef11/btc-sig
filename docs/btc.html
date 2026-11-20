@@ -59,25 +59,17 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 .big{font-size:26px;font-weight:800}.rec{margin:6px 0 2px;font-size:14px}
 .chev{color:var(--mut);width:14px;text-align:center}
 .xp{padding:6px 16px 10px;border-bottom:1px solid var(--bd)}
+#newsv #fw{height:auto;overflow:visible;border-top:0}
 </style></head><body>
 <header>
 <div class="top"><b><i>₿</i> Feed</b><button id="rf">Actualizar</button></div>
 <div class="pulse" id="pulse"></div>
-<div class="tabs"><button data-v="home" class="on">Inicio</button><button data-v="chart">Gráfico</button><button data-v="sig">Señales</button></div>
+<div class="tabs"><button data-v="chart" class="on">Gráfico</button><button data-v="news">Noticias</button><button data-v="sig">Señales</button></div>
 </header>
 
-<div id="home">
-  <div class="blk" id="fgc" hidden>
-    <div class="fgh"><b>Miedo y Codicia</b><span id="fgv"></span></div>
-    <div class="fgb"><i id="fgm"></i></div>
-    <div class="fgl"><span>Miedo extremo</span><span>Codicia extrema</span></div>
-  </div>
-  <div class="blk" id="sg" hidden></div>
-  <div class="fh">Noticias</div>
-  <div id="fw"><main id="tl"></main><div id="st">Cargando…</div></div>
-</div>
 
-<div id="chartv" hidden>
+
+<div id="chartv">
   <div class="blk">
     <div class="cl">Temporalidad</div><div id="c1"></div>
     <div class="cl">Velas visibles</div><div id="c2"></div>
@@ -85,7 +77,15 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
   </div>
   <div class="oh" id="oh"></div>
   <div class="cw"><canvas id="cv"></canvas></div>
+<div class="blk" id="fgc" hidden>
+    <div class="fgh"><b>Miedo y Codicia</b><span id="fgv"></span></div>
+    <div class="fgb"><i id="fgm"></i></div>
+    <div class="fgl"><span>Miedo extremo</span><span>Codicia extrema</span></div>
+  </div>
+<div class="blk" id="sg" hidden></div>
 </div>
+
+<div id="newsv" hidden><div id="fw"><main id="tl"></main><div id="st">Cargando…</div></div></div>
 
 <div id="sigv" hidden></div>
 
@@ -94,7 +94,7 @@ const $=id=>document.getElementById(id);
 const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
 const pc=x=>(x>=0?"+":"")+x.toFixed(1).replace(".",",")+"%";
 const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
-let D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="home";
+let D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart";
 let CFG={tf:"1h",n:100,ind:["sma20","vol","sig"],iv:2};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem("btcfg")||"{}"))}catch(e){}
 const save=()=>{try{localStorage.setItem("btcfg",JSON.stringify(CFG))}catch(e){}};
@@ -303,7 +303,7 @@ async function load(){
   pulse();fgCard();sigCard();draw();sigs();if(VIEW==="chart")drawChart();live();
 }
 function view(v){
-  VIEW=v;$("home").hidden=v!=="home";$("chartv").hidden=v!=="chart";$("sigv").hidden=v!=="sig";
+  VIEW=v;$("chartv").hidden=v!=="chart";$("newsv").hidden=v!=="news";$("sigv").hidden=v!=="sig";
   document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
   if(v==="chart")chart();
 }
@@ -311,5 +311,5 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>view(b.datase
 $("rf").onclick=()=>{load();if(VIEW==="chart")chart()};
 window.addEventListener("resize",()=>{if(VIEW==="chart")drawChart()});
 try{matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>{if(VIEW==="chart")drawChart()})}catch(e){}
-ctl();load();setInterval(load,300000);setInterval(live,30000);setInterval(()=>{if(VIEW==="chart")chart()},60000);
+ctl();load();chart();setInterval(load,300000);setInterval(live,30000);setInterval(()=>{if(VIEW==="chart")chart()},60000);
 </script></body></html>
