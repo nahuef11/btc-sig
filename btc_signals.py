@@ -569,7 +569,115 @@ def top_reason(sc, W, action):
     return PHR[max(ks, key=lambda k: abs(sc[k] * W.get(k, 0)))][0 if g > 0 else 1] if ks else None
 
 
-def build_report(sc, W, score, p, rd, r4, items, fg, why):
+def learn_update(st, L):
+    """Estadística acumulada de aciertos por filtro a 24 h sobre el registro real, con olvido gradual (≈ 2 meses)."""
+    ls = st.setdefault("learn", {"ptr": "", "s": {}})
+    lim = (now() - dt.timedelta(hours=24)).isoformat()
+    for i, e in enumerate(L):
+        if e["ts"] <= ls["ptr"] or e["ts"] > lim or "sc" not in e: continue
+        t = dt.datetime.fromisoformat(e["ts"]) + dt.timedelta(hours=24)
+        f = next((x for x in L[i + 1:] if dt.datetime.fromisoformat(x["ts"]) >= t), None)
+        if not f: continue
+        ret = f["price"] / e["price"] - 1
+        for k, s_ in e["sc"].items():
+            if abs(s_) >= .2:
+                a = ls["s"].setdefault(k, [0.0, 0.0])
+                a[0] = a[0] * .999 + 1
+                a[1] = a[1] * .999 + ((s_ > 0) == (ret > 0))
+        ls["ptr"] = e["ts"]
+    return ls
+
+
+def learn_mult(ls):
+    """Multiplicador de peso por filtro según sus aciertos reales (los nuevos más sensibles que los clásicos)."""
+    mult, info = {}, {}
+    for k, (n_, h_) in ls["s"].items():
+        if n_ < 1: continue
+        hr = h_ / n_
+        info[k] = (round(hr * 100), round(n_))
+        if k in XW and n_ >= 40: mult[k] = max(.25, min(1.75, 1 + 4 * (hr - .5)))
+        elif k in BASE and n_ >= 60: mult[k] = max(.6, min(1.4, 1 + 2 * (hr - .5)))
+    return mult, info
+
+
+def log_mult(st, mult):
+    prev, lg = st.get("mult", {}), st.setdefault("learn_log", [])
+    for k, m in mult.items():
+        if k in LAB and abs(m - prev.get(k, 1)) >= .25:
+            lg.append({"ts": now().isoformat(timespec="seconds"),
+                       "text": f"Peso de «{LAB[k]}» {'subido' if m > prev.get(k, 1) else 'bajado'} según sus aciertos recientes"})
+    st["mult"] = mult
+
+
+def tune_threshold(p, dates, fgmap, th, fee=.002, days=400, h=7):
+    """Prueba umbrales sobre el pasado (pesos base): elige en el 70 % inicial y lo comprueba en el 30 % final. Máx. un escalón."""
+    sc_ = []
+    for i in range(max(200, len(p) - h - days), len(p) - h):
+        sc_.append((combine(scores(p[max(0, i - 299):i + 1], fgmap.get(dates[i])), BASE), p[i + h] / p[i] - 1))
+    cut = int(len(sc_) * .7)
+
+    def ev(rows_, t):
+        r = [(1 if s_ >= t else -1) * ret - fee for s_, ret in rows_ if abs(s_) >= t]
+        return (sum(r) / len(r), len(r)) if r else (0.0, 0)
+
+    best = None
+    for t in (25, 30, 35, 40, 45):
+        (mt, nt), (me, ne) = ev(sc_[:cut], t), ev(sc_[cut:], t)
+        if nt >= 15 and ne >= 8 and (best is None or mt > best[1]): best = (t, mt, me)
+    if best and best[0] != th and best[2] > ev(sc_[cut:], th)[0] + .002 and best[2] > 0:
+        return max(25, min(45, th + (5 if best[0] > th else -5)))
+    return th
+
+
+def live_record(L):
+    """Aciertos de las señales reales (cambios de estado) completadas en los últimos 30 días."""
+    ch, prev = [], None
+    for e in sorted(L, key=lambda e: e["ts"]):
+        if e["action"] != prev: ch.append(e); prev = e["action"]
+    lim, ok, tot = (now() - dt.timedelta(days=30)).isoformat(), 0, 0
+    for i, e in enumerate(ch[:-1]):
+        if e["ts"] < lim: continue
+        nx = ch[i + 1]
+        mv = nx["price"] / e["price"] - 1
+        d = (dt.datetime.fromisoformat(nx["ts"]) - dt.datetime.fromisoformat(e["ts"])).total_seconds() / 86400
+        ok += (mv > 0) if e["action"] == "COMPRAR" else (mv < 0) if e["action"] == "VENDER" else abs(mv) < .015 * math.sqrt(max(1, d))
+        tot += 1
+    return ok, tot
+
+
+def adjust_threshold(st, p, dates, fgmap, L):
+    lg = st.setdefault("learn_log", [])
+
+    def note(t):
+        lg.append({"ts": now().isoformat(timespec="seconds"), "text": t})
+        admin("🧠 " + t)
+
+    th, last = st.get("th", 35), st.get("th_ts", "")
+    if not last or now() - dt.datetime.fromisoformat(last) >= dt.timedelta(days=7):
+        try: new = tune_threshold(p, dates, fgmap, th)
+        except Exception as e: print("ajuste de umbral", e); new = th
+        st["th_ts"] = now().isoformat(timespec="seconds")
+        if new != th: note(f"Umbral de aviso {'subido' if new > th else 'bajado'} de {th} a {new} tras comprobarlo en datos pasados")
+        st["th"] = new
+    ok, tot = live_record(L)
+    c = st.get("caution", False)
+    if tot >= 8 and ok / tot < .45 and not c:
+        st["caution"] = True; note(f"Modo cautela activado: solo {ok} de {tot} señales recientes acertaron")
+    elif tot >= 8 and ok / tot >= .52 and c:
+        st["caution"] = False; note("Modo cautela desactivado: los aciertos recientes se han recuperado")
+    st["rec30"] = [ok, tot]
+    st["learn_log"] = lg[-10:]
+
+
+def learn_view(st, info):
+    rank = sorted(((k, h, n) for k, (h, n) in info.items() if n >= 30 and k in LAB), key=lambda t: -t[1])
+    nm = lambda t: f"{LAB[t[0]]} ({t[1]} %)"
+    return {"th": st.get("th", 35), "caution": bool(st.get("caution")), "rec": st.get("rec30", [0, 0]),
+            "best": [nm(t) for t in rank[:3]], "worst": [nm(t) for t in rank[-3:][::-1]] if len(rank) > 3 else [],
+            "log": st.get("learn_log", [])[-5:], "samples": max((n for _, (h, n) in info.items()), default=0)}
+
+
+def build_report(sc, W, score, p, rd, r4, items, fg, why, caution=False):
     """Informe de mercado en lenguaje claro (no es una señal)."""
     rows, price = r4 or rd, p[-1]
     chg = (r4[-1][4] / r4[-7][4] - 1) * 100 if len(r4) > 7 else (p[-1] / p[-2] - 1) * 100
@@ -592,6 +700,7 @@ def build_report(sc, W, score, p, rd, r4, items, fg, why):
     t.append(f"Niveles clave: soporte {sup:,.0f} · resistencia {res:,.0f}")
     if hl: t.append(f"Titular a vigilar ({hl['source']}): {hl['text'][:110]}")
     if why: t.append("Ojo: " + why[0] + ".")
+    if caution: t.append("Modo cautela activo: las señales recientes han acertado poco, así que solo se avisa con señales más fuertes.")
     t += ["", "ℹ️ Esto no es una señal de compra o venta. Información orientativa, no es asesoramiento financiero."]
     short = (f"📊 BTC · ${price:,.0f} ({chg:+.1f} % 24 h)\nSesgo {bias.split(',')[0]}, tendencia de fondo {trend}.\n"
              f"Soporte {sup:,.0f} · Resistencia {res:,.0f}\n" + (f"Ánimo: {fg_word(fg)}\n" if fg is not None else "")
@@ -673,6 +782,7 @@ def accuracy(hist):
 
 
 def main():
+    global TH
     rd = ohlc(1440)
     p = [r[4] for r in rd]
     dates = [dt.datetime.fromtimestamp(r[0], dt.timezone.utc).strftime("%Y-%m-%d") for r in rd]
@@ -690,7 +800,13 @@ def main():
     sc.update(extras(rd, r4, r1))
     sc.update(deriv(st, p))
     sc.update(markets())
-    xw, xinfo = learn_extras(load_log())
+    L0 = load_log()
+    mult, xinfo = learn_mult(learn_update(st, L0))
+    log_mult(st, mult)
+    w = {k: v * mult.get(k, 1) for k, v in w.items()}
+    xw = {k: v * mult.get(k, 1) for k, v in XW.items()}
+    adjust_threshold(st, p, dates, fgmap, L0)
+    TH = st.get("th", 35) + (10 if st.get("caution") else 0)
     score = combine(sc, {**w, **xw})
     raw = "COMPRAR" if score >= TH else "VENDER" if score <= -TH else "ESPERAR"
     why = gates(raw, score, rd, items, sc)
@@ -717,13 +833,13 @@ def main():
     rslot = nw.strftime("%Y-%m-%d-") + str(nw.hour)
     if nw.hour in hrs and (not RP or RP[-1].get("slot") != rslot):
         label = "mañana" if nw.hour < 13 else "tarde"
-        rep_ = build_report(sc, {**w, **xw}, score, p, rd, r4, items, fg, why)
+        rep_ = build_report(sc, {**w, **xw}, score, p, rd, r4, items, fg, why, st.get("caution"))
         RP.append({"slot": rslot, "ts": nw.isoformat(timespec="seconds"), "title": f"Informe de la {label}", "text": rep_["text"]})
         os.makedirs("docs", exist_ok=True)
         json.dump(RP[-60:], open("docs/reports.json", "w"), ensure_ascii=False)
         publish_report(rep_, r4 or rd, label)
     if os.getenv("TEST_POST") == "true":
-        publish_report(build_report(sc, {**w, **xw}, score, p, rd, r4, items, fg, why), r4 or rd, "prueba", test=True)
+        publish_report(build_report(sc, {**w, **xw}, score, p, rd, r4, items, fg, why, st.get("caution")), r4 or rd, "prueba", test=True)
     if os.getenv("TEST_POST") == "true":
         publish_signal(action if action != "ESPERAR" else "COMPRAR", p[-1], atr(rd),
                        explain(sc, {**w, **xw}, score, action, raw, why, short=True), r4 or rd, test=True, real=action,
@@ -750,7 +866,7 @@ def main():
     except Exception as e: print("comparativa", e)
     write_pwa()
     write_candles(rd, r4, r1, r15)
-    write_feed(items, {"expl": expl, "lv": ({k: round(v) for k, v in lv.items()} if lv else None), "gates": why, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
+    write_feed(items, {"learn": learn_view(st, xinfo), "expl": expl, "lv": ({k: round(v) for k, v in lv.items()} if lv else None), "gates": why, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
                        "weights": {k: round(v, 3) for k, v in w.items()}}, sigs)
     st["weights"] = {k: round(v, 3) for k, v in w.items()}
     json.dump(st, open(STATE, "w"), indent=1)
