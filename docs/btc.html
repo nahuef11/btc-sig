@@ -49,7 +49,7 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 .chp{display:inline-block;border:1px solid var(--bd);border-radius:999px;padding:4px 10px;margin:0 6px 6px 0;font:inherit;font-size:13px;color:var(--mut);background:none;cursor:pointer}
 .chp.on{color:var(--tx);border-color:var(--acc);background:color-mix(in srgb,var(--acc) 15%,transparent)}
 .cl{font-size:12px;color:var(--mut);margin:2px 0 4px}
-.cw{padding:0 0 8px}canvas{display:block;width:100%;touch-action:pan-y}
+.cw{padding:0 0 8px}canvas{display:block;width:100%;touch-action:none;-webkit-user-select:none;user-select:none}
 .oh{font-size:12px;color:var(--mut);padding:2px 12px 6px 16px;min-height:28px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .zb{white-space:nowrap}.zb button{background:none;border:1px solid var(--bd);color:var(--tx);border-radius:6px;width:30px;height:26px;margin-left:4px;font:inherit;cursor:pointer}
 .bar{display:flex;height:10px;border-radius:5px;overflow:hidden;margin:8px 0 4px}.bar i{display:block}
@@ -85,6 +85,7 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
   <div class="oh"><span id="ohx"></span><span class="zb"><button id="zo" title="Alejar">−</button><button id="zi" title="Acercar">+</button><button id="zn" title="Ir a ahora">⏭</button></span></div>
   <div class="cw"><canvas id="cv"></canvas></div>
   <div class="blk" id="bk" hidden></div>
+  <div class="blk" id="lzp" hidden></div>
 <div class="blk" id="fgc" hidden>
     <div class="fgh"><b>Miedo y Codicia</b><span id="fgv"></span></div>
     <div class="fgb"><i id="fgm"></i></div>
@@ -148,20 +149,20 @@ function fgCard(){
   $("fgm").style.left=Math.max(3,Math.min(97,v))+"%";
 }
 function sigCard(){
-  const c=$("sg"),p=D.pulse;if(!p.expl){c.hidden=true;return}c.hidden=false;c.textContent="";
-  const h=el("div","sgh"),b=el("span","bg",lab(p.action));b.style.background=colr(p.action);h.append(b,el("b","","Señal actual"));
-  c.append(h,el("div","sgt",p.expl+(p.lv?"\n"+lvText(p.lv,p.action):"")));
+  const c=$("sg"),p=D.pulse;if(!p.read&&!p.expl){c.hidden=true;return}c.hidden=false;c.textContent="";
+  const h=el("div","sgh"),b=el("span","bg",lab(p.action));b.style.background=colr(p.action);h.append(b,el("b","","Lectura del mercado"));
+  c.append(h,el("div","sgt",(p.read||p.expl)+(p.lv?"\n"+lvText(p.lv,p.action):"")));
 }
 
 /* ---------- Gráfico ---------- */
 const TFS=[["15m","15m"],["1h","1h"],["4h","4h"],["1d","1D"]],NS=[[50,"50"],[100,"100"],[200,"200"]];
-const INDS=[["sma20","SMA 20"],["ema50","EMA 50"],["sma200","SMA 200"],["boll","Bollinger"],["vol","Volumen"],["rsi","RSI"],["macd","MACD"],["vwap","VWAP"],["vp","Perfil de volumen"],["liq","Niveles de liquidez"],["book","Libro y liquidaciones"],["sig","Mis señales"]];
+const INDS=[["sma20","SMA 20"],["ema50","EMA 50"],["sma200","SMA 200"],["boll","Bollinger"],["vol","Volumen"],["rsi","RSI"],["macd","MACD"],["vwap","VWAP"],["vp","Perfil de volumen"],["liq","Niveles de liquidez"],["lz","Zonas de liquidación"],["book","Libro y liquidaciones"],["sig","Mis señales"]];
 const TF={"15m":{k:15,f:"c15"},"1h":{k:60,f:"c60"},"4h":{k:240,f:"c240"},"1d":{k:1440,f:"c1440"}};
 function chips(id,items,on,tap){const c=$(id);c.textContent="";for(const[k,l]of items){const b=el("button","chp"+(on(k)?" on":""),l);b.onclick=()=>tap(k);c.appendChild(b)}}
 function ctl(){
   chips("c1",TFS,k=>k===CFG.tf,k=>{CFG.tf=k;VO=0;save();ctl();chart()});
   chips("c2",NS,k=>k===CFG.n,k=>{CFG.n=k;save();ctl();drawChart()});
-  chips("c3",INDS,k=>CFG.ind.includes(k),k=>{CFG.ind=CFG.ind.includes(k)?CFG.ind.filter(x=>x!==k):[...CFG.ind,k];save();ctl();drawChart();bookSync()});
+  chips("c3",INDS,k=>CFG.ind.includes(k),k=>{CFG.ind=CFG.ind.includes(k)?CFG.ind.filter(x=>x!==k):[...CFG.ind,k];save();ctl();drawChart();bookSync();lzSync()});
   $("tgl").textContent="Indicadores ("+CFG.ind.length+") "+($("cp").hidden?"▾":"▴");
 }
 $("tgl").onclick=()=>{$("cp").hidden=!$("cp").hidden;ctl();drawChart()};
@@ -239,6 +240,11 @@ function drawChart(){
   const pad=(hi-lo)*.04||1;hi+=pad;lo-=pad;const Y=v=>(hi-v)/(hi-lo)*MH;
   q.strokeStyle=BD;q.fillStyle=MUT;q.lineWidth=1;q.textAlign="left";
   for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4,y=Y(v);q.beginPath();q.moveTo(L,y);q.lineTo(w-Rm,y);q.stroke();q.fillText(fmt(v),w-Rm+4,y+4)}
+  if(on("lz")&&LZ){
+    const bs=LZ.bs;for(const k of Object.keys(LZ.B)){const x=LZ.B[k],a=(x.l+x.s)/LZ.max,y0=Y((+k+1)*bs),y1=Y(+k*bs);if(y1<0||y0>MH||a<.04)continue;
+      q.fillStyle=x.s>x.l?"rgba(22,199,132,"+Math.min(.5,.06+a*.5)+")":"rgba(234,57,67,"+Math.min(.5,.06+a*.5)+")";q.fillRect(L,y0,pw,Math.max(1,y1-y0))}
+    for(const z of LZ.zones){if(z.p<lo||z.p>hi)continue;const y=Y(z.p);q.strokeStyle=z.side==="s"?"#16c784":"#ea3943";q.setLineDash([6,3]);q.beginPath();q.moveTo(L,y);q.lineTo(w-Rm,y);q.stroke();q.setLineDash([]);q.fillStyle=z.side==="s"?"#16c784":"#ea3943";q.textAlign="left";q.fillText((z.side==="s"?"Liq. cortos ":"Liq. largos ")+fmt(z.p),L+4,y-3)}
+  }
   if(on("vp")){
     const P=vprofile(V,lo,hi),mx=Math.max(...P.b)||1,bh=Y(lo)-Y(lo+P.h);
     P.b.forEach((x,i)=>{q.fillStyle=i===P.poc?"rgba(245,197,66,.55)":i>=P.a&&i<=P.z?"rgba(138,155,176,.35)":"rgba(138,155,176,.16)";const bw2=x/mx*pw*.22;q.fillRect(w-Rm-bw2,Y(lo+(i+1)*P.h),bw2,Math.max(1,bh-1))});
@@ -287,16 +293,60 @@ const pdist=()=>{const p=[...PT.values()];return p.length<2?0:Math.abs(p[0].x-p[
 function tapInfo(e){if(!CV)return;const r=$("cv").getBoundingClientRect(),i=Math.floor(CV.N-(CV.L+CV.pw-(e.clientX-r.left))/CV.st);if(i>=0&&i<CV.N){HL=i;info(i)}}
 function bindChart(){
   const cv=$("cv");
-  cv.addEventListener("pointerdown",e=>{PT.set(e.pointerId,{x:e.clientX});try{cv.setPointerCapture(e.pointerId)}catch(_){}G={n0:CFG.n,d0:pdist()};tapInfo(e)});
+  cv.addEventListener("pointerdown",e=>{PT.set(e.pointerId,{x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY,m:null});try{cv.setPointerCapture(e.pointerId)}catch(_){}G={n0:CFG.n,d0:pdist()};tapInfo(e)});
   cv.addEventListener("pointermove",e=>{
     const p=PT.get(e.pointerId);if(!p){tapInfo(e);return}
-    if(PT.size===1){const dx=e.clientX-p.x;p.x=e.clientX;if(dx&&CV){VO+=dx/CV.st;HL=null;clampView();redraw()}}
+    if(PT.size===1){
+      if(!p.m&&(Math.abs(e.clientX-p.x0)>6||Math.abs(e.clientY-p.y0)>6))p.m=Math.abs(e.clientY-p.y0)>Math.abs(e.clientX-p.x0)?"v":"h";
+      if(p.m==="v"){window.scrollBy(0,p.y-e.clientY);p.y=e.clientY;return}
+      const dx=e.clientX-p.x;p.x=e.clientX;p.y=e.clientY;if(p.m==="h"&&dx&&CV){VO+=dx/CV.st;HL=null;clampView();redraw()}
+    }
     else{p.x=e.clientX;const d=pdist();if(G&&G.d0>8&&d>8){CFG.n=G.n0*G.d0/d;clampView();redraw()}}
   });
   const up=e=>{PT.delete(e.pointerId);if(!PT.size){save();setTimeout(()=>{HL=null},4000)}else G={n0:CFG.n,d0:pdist()}};
   cv.addEventListener("pointerup",up);cv.addEventListener("pointercancel",up);
   cv.addEventListener("wheel",e=>{e.preventDefault();if(Math.abs(e.deltaX)>Math.abs(e.deltaY)&&CV){VO+=-e.deltaX/CV.st;clampView();redraw()}else zoom(e.deltaY>0?1.15:1/1.15)},{passive:false});
   $("zo").onclick=()=>zoom(1.3);$("zi").onclick=()=>zoom(1/1.3);$("zn").onclick=()=>{VO=0;redraw()};
+}
+/* zonas de liquidación estimadas: donde se acumulan liquidaciones de largos (pisos) y de cortos (techos) */
+let LZ=null,LZT=0,LZB=false;
+const lzOn=()=>CFG.ind.includes("lz");
+function lzModel(oi,kl){
+  const C=kl.map(r=>({t:r[0],o:+r[1],h:+r[2],l:+r[3],c:+r[4],v:+r[5]})),n=C.length,om={};
+  for(const r of oi)om[Math.round(r.timestamp/36e5)]=+r.sumOpenInterestValue;
+  const g=t=>{const k=Math.round(t/36e5);return om[k]??om[k+1]??om[k-1]??null},val=C.map(c=>g(c.t)),price=C[n-1].c,bs=price*.002,minL=[],maxH=[];
+  let mn=Infinity,mx=-Infinity;for(let i=n-1;i>=0;i--){minL[i]=mn;maxH[i]=mx;mn=Math.min(mn,C[i].l);mx=Math.max(mx,C[i].h)}
+  const TIERS=[[5,.1],[10,.3],[25,.3],[50,.2],[100,.1]],B={};let usedOI=0;
+  for(let i=1;i<n;i++){
+    const c=C[i],hasOI=val[i]!=null&&val[i-1]!=null,d=hasOI?val[i]-val[i-1]:c.v*c.c*.05;if(hasOI)usedOI++;if(d<=0)continue;
+    const e=(c.o+c.c)/2,ls=Math.max(.25,Math.min(.75,.5+(c.c-c.o)/((c.h-c.l)||1)*.25));
+    for(const[lev,wt]of TIERS){
+      const LL=e*(1-1/lev+.005),SS=e*(1+1/lev-.005);
+      if(minL[i]>LL){const k=Math.floor(LL/bs);(B[k]=B[k]||{l:0,s:0}).l+=d*ls*wt}
+      if(maxH[i]<SS){const k=Math.floor(SS/bs);(B[k]=B[k]||{l:0,s:0}).s+=d*(1-ls)*wt}
+    }
+  }
+  const ks=Object.keys(B).map(Number).sort((a,b)=>a-b),sm=k=>[-1,0,1].reduce((s,d)=>s+((B[k+d]||{l:0,s:0}).l+(B[k+d]||{l:0,s:0}).s),0);
+  const pick=(side)=>{const c=ks.filter(k=>side==="s"?(k+1)*bs>price:(k+1)*bs<price).map(k=>({k,v:sm(k)})).sort((a,b)=>b.v-a.v),o=[];for(const x of c){if(o.every(y=>Math.abs(y.k-x.k)>=4))o.push(x);if(o.length>=2)break}return o.map(x=>({p:(x.k+.5)*bs,v:x.v,side}))};
+  return{B,bs,price,oi:usedOI>n/2,zones:pick("s").concat(pick("l")),max:Math.max(...ks.map(k=>(B[k].l+B[k].s)),1)};
+}
+async function lzLoad(){
+  if(LZB||Date.now()-LZT<6e5)return;LZB=true;
+  try{
+    const[oi,kl]=await Promise.all([fetch("https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=1h&limit=500").then(r=>r.json()).catch(()=>[]),fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=500").then(r=>r.json())]);
+    LZ=lzModel(Array.isArray(oi)?oi:[],kl);LZT=Date.now();
+  }catch(e){LZ=null}
+  LZB=false;lzPanel();drawChart();
+}
+function lzSync(){if(lzOn())lzLoad();lzPanel()}
+function lzPanel(){
+  const b=$("lzp");b.hidden=!lzOn();if(!lzOn())return;b.textContent="";b.appendChild(el("h4","","Zonas de liquidación"));
+  if(!LZ){b.appendChild(el("div","det",LZB?"Calculando…":"No se pudieron calcular las zonas desde tu navegador ahora mismo."));return}
+  const px=LIVEP||LZ.price,nf=v=>fmt(v),pcg=v=>{const x=(v/px-1)*100;return(x>=0?"+":"")+x.toFixed(1).replace(".",",")+" %"};
+  const sh=LZ.zones.filter(z=>z.side==="s").sort((a,c)=>a.p-c.p),lg=LZ.zones.filter(z=>z.side==="l").sort((a,c)=>c.p-a.p);
+  for(const z of sh)b.appendChild(el("div","det","Cortos: "+nf(z.p)+", a "+pcg(z.p)+" del precio. Posible techo."));
+  for(const z of lg)b.appendChild(el("div","det","Largos: "+nf(z.p)+", a "+pcg(z.p)+" del precio. Posible piso."));
+  b.appendChild(el("div","det",LZ.oi?"Estimación con el interés abierto de Binance Futures.":"Estimación con el volumen, sin datos de interés abierto."));
 }
 /* libro de órdenes y liquidaciones */
 const bookOn=()=>CFG.ind.includes("book");
@@ -405,13 +455,13 @@ function sigs(){
 }
 function learnCard(){
   const L=D&&D.pulse.learn;if(!L)return null;
-  const c=el("div","blk");c.appendChild(el("h4","","Cómo aprende el sistema"));
-  c.appendChild(el("div","rt","Cada hora comprueba qué filtros acertaron a 24 horas: da más peso a los que aciertan y menos a los que fallan. Cada semana prueba si otro umbral de aviso habría funcionado mejor en datos pasados. Y si las señales reales de los últimos 30 días aciertan menos del 45 %, pasa a modo cautela y solo avisa con señales más fuertes."));
-  const rows=["Estado: "+(L.caution?"modo cautela (avisa solo con señales más fuertes)":"normal")+". Umbral de aviso: "+L.th+" sobre 100 (cuanto más alto, menos señales y más exigentes)."];
-  rows.push(L.rec[1]>=1?"Últimos 30 días: "+L.rec[0]+" de "+L.rec[1]+" señales acertadas ("+Math.round(L.rec[0]/L.rec[1]*100)+" %).":"Últimos 30 días: aún hay pocas señales completadas.");
-  rows.push(L.best.length?"Filtros que mejor aciertan últimamente: "+L.best.join(", ")+(L.worst.length?".\nLos que menos: "+L.worst.join(", ")+".":"."):"Aún acumulando datos: hacen falta al menos 30 casos por filtro para compararlos.");
-  rows.push(L.log.length?"Últimos ajustes:\n"+L.log.map(x=>"• "+new Date(x.ts).toLocaleDateString("es-ES",{day:"numeric",month:"short"})+": "+x.text).join("\n"):"Todavía no ha hecho ningún ajuste.");
-  const t=el("div","rt",rows.join("\n"));t.style.marginTop="8px";c.appendChild(t);return c;
+  const c=el("div","blk");c.appendChild(el("h4","","Ajustes automáticos"));
+  const rows=["Modo: "+(L.caution?"cautela":"normal"),"Umbral de aviso: "+L.th];
+  if(L.rec[1]>=1)rows.push("Señales recientes acertadas: "+L.rec[0]+" de "+L.rec[1]);
+  if(L.best.length)rows.push("Filtros que mejor aciertan: "+L.best.join(", "));
+  if(L.worst.length)rows.push("Filtros que peor aciertan: "+L.worst.join(", "));
+  rows.push(L.log.length?"Cambios hechos:\n"+L.log.map(x=>"• "+x.text).join("\n"):"Sin cambios todavía");
+  c.appendChild(el("div","rt",rows.join("\n")));return c;
 }
 function reps(){
   const v=$("repv");v.textContent="";const lc=learnCard();if(lc)v.appendChild(lc);
@@ -472,5 +522,5 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>view(b.datase
 $("rf").onclick=()=>{load();if(VIEW==="chart")chart()};
 window.addEventListener("resize",()=>{if(VIEW==="chart")drawChart()});
 try{matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>{if(VIEW==="chart")drawChart()})}catch(e){}
-ctl();bindChart();load();chart();connect();bookSync();setInterval(load,300000);setInterval(live,30000);setInterval(()=>{if(VIEW==="chart")chart()},60000);
+ctl();bindChart();load();chart();connect();bookSync();lzSync();setInterval(load,300000);setInterval(live,30000);setInterval(()=>{if(VIEW==="chart")chart()},60000);
 </script></body></html>
