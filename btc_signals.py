@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Señales BTC: técnicos + Fear & Greed + noticias. Avisa por Telegram y se recalibra solo."""
-import json, os, re, math, zlib, struct, urllib.request, urllib.parse, datetime as dt
+import json, os, re, math, zlib, struct, time, base64, hmac, hashlib, urllib.request, urllib.parse, datetime as dt
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 
@@ -455,9 +455,12 @@ def make_chart(path, rows, action, price, lv, log):
     n = len(R)
     BG, FG, UP, DN = "#0f1115", "#e7e9ea", "#16c784", "#ea3943"
     buy = action == "COMPRAR"
-    lines = [(lv["sl"], DN, "-", f"SL fut {lv['sl']:,.0f}"), (lv["tp1"], UP, "-", f"TP1 {lv['tp1']:,.0f}"),
-             (lv["tp2"], UP, "-", f"TP2 {lv['tp2']:,.0f}"),
-             (lv["stop_spot"], DN, ":", f"Stop spot {lv['stop_spot']:,.0f}"), (lv["obj_spot"], UP, ":", f"Obj. spot {lv['obj_spot']:,.0f}")]
+    if action:
+        lines = [(lv["sl"], DN, "-", f"SL fut {lv['sl']:,.0f}"), (lv["tp1"], UP, "-", f"TP1 {lv['tp1']:,.0f}"),
+                 (lv["tp2"], UP, "-", f"TP2 {lv['tp2']:,.0f}"),
+                 (lv["stop_spot"], DN, ":", f"Stop spot {lv['stop_spot']:,.0f}"), (lv["obj_spot"], UP, ":", f"Obj. spot {lv['obj_spot']:,.0f}")]
+    else:
+        lines = [(lv["sup"], UP, ":", f"Soporte {lv['sup']:,.0f}"), (lv["res"], DN, ":", f"Resistencia {lv['res']:,.0f}")]
     ys = [l[0] for l in lines]
     lo, hi = min(min(r[3] for r in R), *ys), max(max(r[2] for r in R), *ys)
     off = (hi - lo) * .05
@@ -485,10 +488,11 @@ def make_chart(path, rows, action, price, lv, log):
         b_ = e["action"] == "COMPRAR"
         ax.scatter(idx, R[idx][3] - off * .8 if b_ else R[idx][2] + off * .8, marker="^" if b_ else "v", s=110,
                    color=UP if b_ else DN, zorder=5)
-    x, c = n - 1, UP if buy else DN
-    ax.annotate(action, xy=(x, R[-1][3] - off * .2 if buy else R[-1][2] + off * .2),
-                xytext=(x, R[-1][3] - off * 2.4 if buy else R[-1][2] + off * 2.4), ha="center", va="top" if buy else "bottom",
-                color=c, fontsize=11, fontweight="bold", arrowprops=dict(arrowstyle="-|>", color=c, lw=3, mutation_scale=22))
+    if action:
+        x, c = n - 1, UP if buy else DN
+        ax.annotate(action, xy=(x, R[-1][3] - off * .2 if buy else R[-1][2] + off * .2),
+                    xytext=(x, R[-1][3] - off * 2.4 if buy else R[-1][2] + off * 2.4), ha="center", va="top" if buy else "bottom",
+                    color=c, fontsize=11, fontweight="bold", arrowprops=dict(arrowstyle="-|>", color=c, lw=3, mutation_scale=22))
     for y, col, ls, lab in lines:
         ax.hlines(y, n - 14, n + 4, color=col, ls=ls, lw=1.2)
         ax.text(n + 4.5, y, lab, color=col, fontsize=8, va="center")
@@ -502,11 +506,123 @@ def make_chart(path, rows, action, price, lv, log):
     ax.tick_params(colors="#8899a6")
     ax.grid(color="#1f2328", lw=.6)
     for sp in ax.spines.values(): sp.set_color("#2f3336")
-    ax.set_title(f"BTC/USD · 4h · {action} a ${price:,.0f}", color=FG, fontsize=14, loc="left")
+    ax.set_title(f"BTC/USD · 4h · {action} a ${price:,.0f}" if action else f"BTC/USD · 4h · Informe · ${price:,.0f}", color=FG, fontsize=14, loc="left")
     ax.legend(loc="upper left", facecolor=BG, edgecolor="none", labelcolor=FG, fontsize=9)
     fig.text(.01, .01, "Información orientativa · no es asesoramiento financiero", color="#8899a6", fontsize=8)
     fig.savefig(path, facecolor=BG, bbox_inches="tight")
     plt.close(fig)
+
+
+def oauth1(method, url, ck, cs, tk, ts):
+    q = lambda v: urllib.parse.quote(str(v), safe="~")
+    p = {"oauth_consumer_key": ck, "oauth_nonce": os.urandom(16).hex(), "oauth_signature_method": "HMAC-SHA1",
+         "oauth_timestamp": str(int(time.time())), "oauth_token": tk, "oauth_version": "1.0"}
+    base = "&".join([method, q(url), q("&".join(f"{q(k)}={q(v)}" for k, v in sorted(p.items())))])
+    p["oauth_signature"] = base64.b64encode(hmac.new(f"{q(cs)}&{q(ts)}".encode(), base.encode(), hashlib.sha1).digest()).decode()
+    return "OAuth " + ", ".join(f'{q(k)}="{q(v)}"' for k, v in sorted(p.items()))
+
+
+def x_post(text, image=None):
+    """Publica en X (cuenta del bot). Sin enlaces en el texto: en X de pago por uso un post con URL cuesta mucho más."""
+    keys = [os.getenv(k) for k in ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET")]
+    if not all(keys):
+        print("X (sin configurar):", text); return
+    try:
+        media = None
+        if image:
+            b = "----x" + os.urandom(8).hex()
+            body = (f'--{b}\r\nContent-Disposition: form-data; name="media"; filename="btc.png"\r\nContent-Type: image/png\r\n\r\n'.encode()
+                    + open(image, "rb").read() + f"\r\n--{b}--\r\n".encode())
+            for host in ("upload.x.com", "upload.twitter.com"):
+                url = f"https://{host}/1.1/media/upload.json"
+                try:
+                    req = urllib.request.Request(url, data=body, headers={"Authorization": oauth1("POST", url, *keys),
+                                                 "Content-Type": f"multipart/form-data; boundary={b}"})
+                    media = json.loads(urllib.request.urlopen(req, timeout=60).read())["media_id_string"]
+                    break
+                except Exception as e: print("Subida de imagen a X falló:", host, e)
+        data = {"text": text}
+        if media: data["media"] = {"media_ids": [media]}
+        url = "https://api.x.com/2/tweets"
+        req = urllib.request.Request(url, data=json.dumps(data).encode(),
+                                     headers={"Authorization": oauth1("POST", url, *keys), "Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=30)
+    except Exception as e: print("X falló:", e)
+
+
+def key_levels(rows, price):
+    R = rows[-120:]
+    n = len(R)
+    lows = [R[i][3] for i in range(3, n - 3) if R[i][3] == min(R[j][3] for j in range(i - 3, i + 4))]
+    highs = [R[i][2] for i in range(3, n - 3) if R[i][2] == max(R[j][2] for j in range(i - 3, i + 4))]
+    return (max([x for x in lows if x < price], default=min(r[3] for r in R)),
+            min([x for x in highs if x > price], default=max(r[2] for r in R)))
+
+
+def fg_word(v):
+    return "miedo extremo" if v < 25 else "miedo" if v < 45 else "neutral" if v < 55 else "codicia" if v < 75 else "codicia extrema"
+
+
+def top_reason(sc, W, action):
+    g = 1 if action == "COMPRAR" else -1
+    ks = [k for k in sc if sc[k] * g >= .2 and k in PHR]
+    return PHR[max(ks, key=lambda k: abs(sc[k] * W.get(k, 0)))][0 if g > 0 else 1] if ks else None
+
+
+def build_report(sc, W, score, p, rd, r4, items, fg, why):
+    """Informe de mercado en lenguaje claro (no es una señal)."""
+    rows, price = r4 or rd, p[-1]
+    chg = (r4[-1][4] / r4[-7][4] - 1) * 100 if len(r4) > 7 else (p[-1] / p[-2] - 1) * 100
+    sup, res = key_levels(rows, price)
+    bias = ("claramente alcista" if score >= 35 else "ligeramente alcista" if score >= 15 else "neutral, con señales que se compensan"
+            if score > -15 else "ligeramente bajista" if score > -35 else "claramente bajista")
+    cr = sc.get("cross", 0)
+    trend = "alcista" if cr > .2 else "bajista" if cr < -.2 else "poco definida"
+    mom = sc.get("macd4h")
+    mom_t = "" if mom is None else ", y a corto plazo el impulso es " + ("alcista" if mom > .2 else "bajista" if mom < -.2 else "mixto")
+    ctx = [PHR[k][0 if sc[k] > 0 else 1] for k in sorted((k for k in ("funding", "ls", "oi", "nasdaq", "dxy") if k in sc and abs(sc[k]) >= .3),
+                                                         key=lambda k: -abs(sc[k] * W.get(k, 0)))[:2]]
+    nw_ = sc.get("news")
+    tone = "" if nw_ is None else "positivas" if nw_ > .2 else "negativas" if nw_ < -.2 else "mixtas"
+    hl = next((i for i in sorted(items, key=lambda i: i["ts"], reverse=True) if i["impact"]), None)
+    mood = (f"Ánimo del mercado: {fg_word(fg)}" if fg is not None else "") + (f"; noticias {tone}" if tone else "") + "."
+    t = [f"Precio: ${price:,.0f} ({chg:+.1f} % en 24 h)", "",
+         f"Sesgo {bias}. La tendencia de fondo es {trend}{mom_t}.", mood]
+    if ctx: t.append("Contexto: " + "; ".join(ctx) + ".")
+    t.append(f"Niveles clave: soporte {sup:,.0f} · resistencia {res:,.0f}")
+    if hl: t.append(f"Titular a vigilar ({hl['source']}): {hl['text'][:110]}")
+    if why: t.append("Ojo: " + why[0] + ".")
+    t += ["", "ℹ️ Esto no es una señal de compra o venta. Información orientativa, no es asesoramiento financiero."]
+    short = (f"📊 BTC · ${price:,.0f} ({chg:+.1f} % 24 h)\nSesgo {bias.split(',')[0]}, tendencia de fondo {trend}.\n"
+             f"Soporte {sup:,.0f} · Resistencia {res:,.0f}\n" + (f"Ánimo: {fg_word(fg)}\n" if fg is not None else "")
+             + "No es asesoramiento financiero #BTC")
+    return {"text": "\n".join(t), "short": short[:280], "levels": {"sup": sup, "res": res}, "price": price}
+
+
+def publish_report(rep, rows, label, test=False):
+    cap = (("🧪 PRUEBA del canal (no es un informe real)\n\n" if test else "") + f"📊 Informe BTC · {label}\n" + rep["text"])[:1020]
+    img = None
+    try:
+        make_chart("report.png", rows, None, rep["price"], rep["levels"], load_log())
+        img = "report.png"
+    except Exception as e: print("Gráfico del informe falló:", e)
+    try:
+        telegram_photo(img, cap) if img else telegram(cap)
+    except Exception as e:
+        print("Telegram falló:", e); telegram(cap)
+    x_post(("🧪 PRUEBA\n" if test else "") + rep["short"], img)
+
+
+def x_signal_text(action, price, lv, reason, test=False):
+    long_ = action == "COMPRAR"
+    t = [f"{'🟢' if long_ else '🔴'} {action} BTC · ${price:,.0f}"]
+    if reason: t.append(reason[0].upper() + reason[1:] + ".")
+    t += [f"Spot: {'stop' if long_ else 'invalidación'} {lv['stop_spot']:,.0f} · obj. {lv['obj_spot']:,.0f}",
+          f"{'LONG' if long_ else 'SHORT'}: stop {lv['sl']:,.0f} · TP {lv['tp1']:,.0f}/{lv['tp2']:,.0f}",
+          "⚠️ No es asesoramiento financiero #BTC"]
+    if test: t.insert(0, "🧪 PRUEBA")
+    s = "\n".join(t)
+    return s if len(s) <= 270 else "\n".join(t[:1] + t[2:])[:280]
 
 
 def levels(action, price, a, a4):
@@ -517,24 +633,27 @@ def levels(action, price, a, a4):
             "lev": max(1, min(5, int(1 / (2 * 1.5 * a4 / price))))}  # liquidación al menos al doble de distancia que el stop
 
 
-def publish_signal(action, price, a, expl, rows, test=False, real=None):
+def publish_signal(action, price, a, expl, rows, test=False, real=None, reason=None):
     lv = levels(action, price, a, atr(rows))
     long_ = action == "COMPRAR"
-    lev = lv["lev"]
     spot = (f"📈 Spot: comprar · stop {lv['stop_spot']:,.0f} · objetivo {lv['obj_spot']:,.0f}" if long_
             else f"📉 Spot: vender o salir · invalidación sobre {lv['stop_spot']:,.0f} · objetivo bajista {lv['obj_spot']:,.0f}")
     fut = (f"⚡ Futuros: {'LONG' if long_ else 'SHORT'} · stop {lv['sl']:,.0f} · objetivos {lv['tp1']:,.0f} / {lv['tp2']:,.0f} · "
-           f"apalancamiento máx. sugerido {lev}x")
+           f"apalancamiento máx. sugerido {lv['lev']}x")
     cap = ((f"🧪 PRUEBA del canal (no es una señal real; ahora mismo la señal es {real})\n\n" if test else "")
            + f"{'🟢' if long_ else '🔴'} {action} BTC · ${price:,.0f}\n\n{expl}\n\n{spot}\n{fut}\n\n"
            "⚠️ Información orientativa, no es asesoramiento financiero. Los futuros con apalancamiento pueden liquidarte: "
            "arriesga como máximo el 1-2 % de tu capital por operación.")
+    img = None
     try:
         make_chart("chart.png", rows, action, price, lv, load_log())
-        telegram_photo("chart.png", cap)
+        img = "chart.png"
+    except Exception as e: print("Gráfico falló:", e)
+    try:
+        telegram_photo(img, cap) if img else telegram(cap)
     except Exception as e:
-        print("Gráfico o envío con foto falló:", e)
-        telegram(cap)
+        print("Telegram falló:", e); telegram(cap)
+    x_post(x_signal_text(action, price, lv, reason, test), img)
 
 
 def evaluate(hist):
@@ -589,10 +708,26 @@ def main():
         sigs.append({"id": "sig-" + ts0, "type": "signal", "source": "Señales BTC", "action": action, "detail": expl,
                      "text": f"{action}" + (f" (señal {raw} bloqueada: {'; '.join(why)})" if why else "") + f" · puntuación {score} · BTC {p[-1]:,.0f} USD", "ts": ts0})
         if action != "ESPERAR":
-            publish_signal(action, p[-1], atr(rd), explain(sc, {**w, **xw}, score, action, raw, why, short=True), r4 or rd)
+            publish_signal(action, p[-1], atr(rd), explain(sc, {**w, **xw}, score, action, raw, why, short=True), r4 or rd,
+                           reason=top_reason(sc, {**w, **xw}, action))
+    nw = now()
+    hrs = {int(x) for x in (os.getenv("REPORT_HOURS") or "7,19").split(",") if x.strip().isdigit()}
+    try: RP = json.load(open("docs/reports.json"))
+    except Exception: RP = []
+    rslot = nw.strftime("%Y-%m-%d-") + str(nw.hour)
+    if nw.hour in hrs and (not RP or RP[-1].get("slot") != rslot):
+        label = "mañana" if nw.hour < 13 else "tarde"
+        rep_ = build_report(sc, {**w, **xw}, score, p, rd, r4, items, fg, why)
+        RP.append({"slot": rslot, "ts": nw.isoformat(timespec="seconds"), "title": f"Informe de la {label}", "text": rep_["text"]})
+        os.makedirs("docs", exist_ok=True)
+        json.dump(RP[-60:], open("docs/reports.json", "w"), ensure_ascii=False)
+        publish_report(rep_, r4 or rd, label)
+    if os.getenv("TEST_POST") == "true":
+        publish_report(build_report(sc, {**w, **xw}, score, p, rd, r4, items, fg, why), r4 or rd, "prueba", test=True)
     if os.getenv("TEST_POST") == "true":
         publish_signal(action if action != "ESPERAR" else "COMPRAR", p[-1], atr(rd),
-                       explain(sc, {**w, **xw}, score, action, raw, why, short=True), r4 or rd, test=True, real=action)
+                       explain(sc, {**w, **xw}, score, action, raw, why, short=True), r4 or rd, test=True, real=action,
+                       reason=top_reason(sc, {**w, **xw}, action if action != "ESPERAR" else "COMPRAR"))
     st["last"] = action
 
     n = now()
