@@ -62,13 +62,14 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 #c1{display:flex;gap:4px}.tb .chp{margin:0;padding:3px 9px;font-size:12px}
 .dh{display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer}.dsum{font-weight:400;font-size:13px;color:var(--mut);text-transform:none}
 .bg{white-space:nowrap}.xp,.sgt{white-space:pre-line}
+.rt{white-space:pre-line;font-size:14px;margin-top:6px;line-height:1.5}
 .xp{padding:6px 16px 10px;border-bottom:1px solid var(--bd)}
 #newsv #fw{height:auto;overflow:visible;border-top:0}
 </style></head><body>
 <header>
 <div class="top"><b><i>₿</i> Feed</b><button id="rf">Actualizar</button></div>
 <div class="pulse" id="pulse"></div>
-<div class="tabs"><button data-v="chart" class="on">Gráfico</button><button data-v="sig">Señales</button><button data-v="news">Noticias</button></div>
+<div class="tabs"><button data-v="chart" class="on">Gráfico</button><button data-v="sig">Señales</button><button data-v="rep">Informes</button><button data-v="news">Noticias</button></div>
 </header>
 
 
@@ -92,6 +93,7 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 <div id="newsv" hidden><div id="fw"><main id="tl"></main><div id="st">Cargando…</div></div></div>
 
 <div id="sigv" hidden></div>
+<div id="repv" hidden></div>
 
 <script>
 const $=id=>document.getElementById(id);
@@ -99,8 +101,8 @@ const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
 const pc=x=>(x>=0?"+":"")+x.toFixed(1).replace(".",",")+"%";
 const lab=a=>a==="COMPRAR"?"COMPRAR · LONG":a==="VENDER"?"VENDER · SHORT":a;
 const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
-let OPEN=null,D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart",HL=null,WS=null,WSOK=false,WSN=0,DT=0;
-let CFG={tf:"1h",n:100,ind:["sma20","vol","sig"],iv:2};
+let OPEN=null,RP=null,D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart",HL=null,WS=null,WSOK=false,WSN=0,DT=0;
+let CFG={tf:"1h",n:100,ind:["sma20","vol","sig"]};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem("btcfg")||"{}"))}catch(e){}
 const save=()=>{try{localStorage.setItem("btcfg",JSON.stringify(CFG))}catch(e){}};
 function ago(iso){const s=(Date.now()-new Date(iso))/1000;if(s<60)return"ahora";if(s<3600)return Math.floor(s/60)+" min";if(s<86400)return Math.floor(s/3600)+" h";return Math.floor(s/86400)+" d"}
@@ -237,7 +239,6 @@ function drawChart(){
 }
 
 /* ---------- Señales ---------- */
-const IVS=[[1,"1 h"],[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"]];
 function record(all,cur){
   let e=1,inm=false,prev=null,ops=0;
   for(const x of all){
@@ -255,26 +256,25 @@ function record(all,cur){
   if(pos&&p2!=null)e2*=1+pos*(cur/p2-1);
   return{fut:(e2-1)*100,opsF,strat:(e-1)*100,hold:(cur/all[0].price-1)*100,ops,days:(Date.now()-new Date(all[0].ts))/864e5,since:new Date(all[0].ts)};
 }
+function dur(d){return d<1?Math.max(1,Math.round(d*24))+" h":(Math.round(d*10)/10).toString().replace(".",",")+" d"}
 function sigs(){
   const v=$("sigv");v.textContent="";
-  if(!S||!S.length){v.appendChild(el("div","empty","Aún no hay señales registradas. Se guarda una cada hora."));return}
-  const all=S.slice().sort((a,b)=>a.ts<b.ts?-1:1),cur=LIVEP||D.pulse.price,today=new Date().toDateString(),days={};
-  for(const e of all){const k=new Date(e.ts).toDateString();(days[k]=days[k]||{d:new Date(e.ts),items:[]}).items.push(e)}
-  const res=new Map(),T={ok:0,bad:0,B:[0,0],V:[0,0],W:[0,0]};
-  for(const k in days){
-    const g=days[k],last=g.items[g.items.length-1],isT=k===today;g.ref=isT?cur:last.price;g.ok=0;g.bad=0;
-    for(const e of g.items){
-      if(new Date(e.ts).getHours()%CFG.iv||(!isT&&e===last))continue;
-      const mv=(g.ref/e.price-1)*100,hit=e.action==="COMPRAR"?mv>0:e.action==="VENDER"?mv<0:Math.abs(mv)<1.5;
-      res.set(e,{mv,hit});if(hit){g.ok++;T.ok++}else{g.bad++;T.bad++}
-      const t=e.action==="COMPRAR"?"B":e.action==="VENDER"?"V":"W";T[t][1]++;if(hit)T[t][0]++;
-    }
-  }
+  if(!S||!S.length){v.appendChild(el("div","empty","Aún no hay señales registradas."));return}
+  const all=S.slice().sort((a,b)=>a.ts<b.ts?-1:1),cur=LIVEP||D.pulse.price,today=new Date().toDateString(),ch=[];
+  let prev=null;for(const e of all){if(e.action!==prev){ch.push(e);prev=e.action}}
+  const res=new Map(),T={ok:0,bad:0,B:[0,0],V:[0,0],W:[0,0]},days={};
+  ch.forEach((e,i)=>{
+    const nx=ch[i+1],end=nx?nx.price:cur,d=((nx?new Date(nx.ts):new Date())-new Date(e.ts))/864e5,mv=(end/e.price-1)*100;
+    const hit=e.action==="COMPRAR"?mv>0:e.action==="VENDER"?mv<0:Math.abs(mv)<1.5*Math.sqrt(Math.max(1,d));
+    res.set(e,{mv,hit,d,open:!nx});
+    const k=new Date(e.ts).toDateString(),g=days[k]=days[k]||{d:new Date(e.ts),items:[],ok:0,bad:0};g.items.push(e);
+    if(nx){if(hit){T.ok++;g.ok++}else{T.bad++;g.bad++}const t=e.action==="COMPRAR"?"B":e.action==="VENDER"?"V":"W";T[t][1]++;if(hit)T[t][0]++}
+  });
   const n=T.ok+T.bad,rec=record(all,cur),box=el("div","blk");
   box.appendChild(el("h4","","Resultados"));
-  box.appendChild(el("div","big",n?Math.round(T.ok/n*100)+"% de aciertos":"Aún sin decisiones evaluadas"));
-  if(n)box.appendChild(el("div","det",T.ok+" de "+n+" decisiones · Comprar/Long "+T.B[0]+"/"+T.B[1]+" · Vender/Short "+T.V[0]+"/"+T.V[1]+" · Esperar "+T.W[0]+"/"+T.W[1]));
-  box.appendChild(el("div","det","Comprar acierta si el precio sube hasta el cierre del día, vender si baja, y esperar si se mueve menos de un 1,5 %."));
+  box.appendChild(el("div","big",n?Math.round(T.ok/n*100)+"% de aciertos":"Aún sin señales completadas"));
+  if(n)box.appendChild(el("div","det",T.ok+" de "+n+" señales · Comprar/Long "+T.B[0]+"/"+T.B[1]+" · Vender/Short "+T.V[0]+"/"+T.V[1]+" · Esperar "+T.W[0]+"/"+T.W[1]));
+  box.appendChild(el("div","det","Cada señal se evalúa hasta la siguiente: comprar acierta si el precio sube, vender si baja, y esperar si se mueve poco (con más margen cuantos más días dura)."));
   const rc=el("div","rec");
   if(rec.ops){
     rc.append("Spot (comprar y vender) desde el "+rec.since.toLocaleDateString("es-ES",{day:"numeric",month:"short"})+": ");
@@ -284,29 +284,31 @@ function sigs(){
   if(rec.opsF){const f=el("div","rec");f.append("Futuros (largo y corto, sin apalancar): ");const bf=el("b","",pc(rec.fut));bf.style.color=rec.fut>=0?"var(--buy)":"var(--sell)";f.append(bf);box.appendChild(f)}
   if(rec.days<7)box.appendChild(el("div","det","Registro todavía corto ("+Math.max(1,Math.round(rec.days))+" d): los porcentajes pueden cambiar mucho."));
   v.appendChild(box);
-  const iv=el("div","blk");iv.appendChild(el("div","cl","Mostrar una señal cada"));const ci=el("div");ci.id="civ";iv.appendChild(ci);
-  iv.appendChild(el("div","det","Los avisos de Telegram llegan cuando la señal cambia, sea cual sea esta vista."));v.appendChild(iv);
-  chips("civ",IVS,k=>k===CFG.iv,k=>{CFG.iv=k;save();sigs()});
-  const hn=el("div","det","Toca una señal para ver por qué se tomó esa decisión.");hn.style.padding="10px 16px 0";v.appendChild(hn);
+  const hn=el("div","det","Solo se muestra una señal cuando cambia el estado (comprar, vender o esperar). Toca una para ver por qué.");hn.style.padding="10px 16px 0";v.appendChild(hn);
+  if(!OPEN)OPEN=new Set([today]);
   for(const k of Object.keys(days).sort((a,b)=>days[b].d-days[a].d)){
-    const g=days[k],isT=k===today,shown=g.items.filter(e=>new Date(e.ts).getHours()%CFG.iv===0);
-    if(!shown.length)continue;
-    if(!OPEN)OPEN=new Set([today]);
-    const wrap=el("div","dg"),dt0=g.d.toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});wrap.hidden=!OPEN.has(k);
+    const g=days[k],wrap=el("div","dg"),dt0=g.d.toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});wrap.hidden=!OPEN.has(k);
     const dh=el("div","dh"),dl=el("span","",(OPEN.has(k)?"▾ ":"▸ ")+dt0),dr=el("span","dsum",g.ok+g.bad?"✅ "+g.ok+" · ❌ "+g.bad+" · "+Math.round(g.ok/(g.ok+g.bad)*100)+"%":"");
     dh.append(dl,dr);dh.onclick=()=>{OPEN.has(k)?OPEN.delete(k):OPEN.add(k);const o=OPEN.has(k);wrap.hidden=!o;dl.textContent=(o?"▾ ":"▸ ")+dt0};
     v.append(dh,wrap);
-    for(const e of shown){
-      const r=el("div","sr");r.appendChild(el("span","t",new Date(e.ts).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})));
+    for(const e of g.items.slice().reverse()){
+      const q=res.get(e),r=el("div","sr");r.appendChild(el("span","t",new Date(e.ts).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})));
       const b=el("span","bg",lab(e.action));b.style.background=colr(e.action);r.appendChild(b);
       if(e.action!=="ESPERAR")r.appendChild(el("span","det",Math.abs(e.score)>=60?"fuerte":"moderada"));
-      const p=el("span","p","$"+fmt(e.price)),q=res.get(e);if(q)p.append("  "+(q.hit?"✅":"❌")+" "+pc(q.mv));
-      const ch=el("span","chev","▸"),x=el("div","det xp",(e.expl||"Explicación no disponible para señales antiguas.")+(e.lv?"\n"+lvText(e.lv,e.action):""));x.hidden=true;
-      r.style.cursor="pointer";r.onclick=()=>{x.hidden=!x.hidden;ch.textContent=x.hidden?"▸":"▾"};
-      r.append(p,ch);wrap.append(r,x);
+      const p=el("span","p","$"+fmt(e.price)+"  "+(q.open?"en curso "+pc(q.mv):(q.hit?"✅ ":"❌ ")+pc(q.mv)));
+      const cv=el("span","chev","▸"),x=el("div","det xp",(e.expl||"Explicación no disponible para señales antiguas.")+(e.lv?"\n"+lvText(e.lv,e.action):"")+"\n"+(q.open?"Lleva ":"Duró ")+dur(q.d)+(q.open?" en este estado.":" hasta el siguiente cambio."));x.hidden=true;
+      r.style.cursor="pointer";r.onclick=()=>{x.hidden=!x.hidden;cv.textContent=x.hidden?"▸":"▾"};
+      r.append(p,cv);wrap.append(r,x);
     }
-    const ok=g.ok,bad=g.bad;
-    wrap.appendChild(el("div","sum",(isT?"Hasta ahora":"Cierre")+" $"+fmt(g.ref)+" · ✅ "+ok+(ok===1?" acierto":" aciertos")+" · ❌ "+bad+(bad===1?" error":" errores")+(ok+bad?" · "+Math.round(ok/(ok+bad)*100)+"%":"")));
+  }
+}
+function reps(){
+  const v=$("repv");v.textContent="";
+  if(!RP||!RP.length){v.appendChild(el("div","empty","Todavía no hay informes. Se publican dos veces al día."));return}
+  for(const r of RP.slice().sort((a,b)=>a.ts<b.ts?1:-1)){
+    const c=el("div","blk");c.appendChild(el("h4","",r.title));
+    const d=el("div","det",new Date(r.ts).toLocaleString("es-ES",{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}));d.style.textTransform="capitalize";
+    c.append(d,el("div","rt",r.text));v.appendChild(c);
   }
 }
 
@@ -347,10 +349,11 @@ async function load(){
   try{const r=await fetch("feed.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;D=await r.json()}
   catch(e){$("st").textContent="No se pudo cargar el feed. Revisa que el workflow haya corrido al menos una vez.";return}
   try{const q=await fetch("signals.json?t="+Date.now(),{cache:"no-store"});S=q.ok?await q.json():null}catch(e){S=null}
-  pulse();fgCard();sigCard();draw();sigs();if(VIEW==="chart")drawChart();live();
+  try{const q=await fetch("reports.json?t="+Date.now(),{cache:"no-store"});RP=q.ok?await q.json():null}catch(e){RP=null}
+  pulse();fgCard();sigCard();draw();sigs();reps();if(VIEW==="chart")drawChart();live();
 }
 function view(v){
-  VIEW=v;$("chartv").hidden=v!=="chart";$("newsv").hidden=v!=="news";$("sigv").hidden=v!=="sig";
+  VIEW=v;$("chartv").hidden=v!=="chart";$("newsv").hidden=v!=="news";$("repv").hidden=v!=="rep";$("sigv").hidden=v!=="sig";
   document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
   if(v==="chart")chart();
 }
