@@ -58,6 +58,8 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 .sgh{display:flex;align-items:center;gap:8px;margin-bottom:4px}.sgt{font-size:14px;color:var(--mut)}
 .big{font-size:26px;font-weight:800}.rec{margin:6px 0 2px;font-size:14px}
 .chev{color:var(--mut);width:14px;text-align:center}
+.tb{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;border-bottom:1px solid var(--bd)}
+#c1{display:flex;gap:4px}.tb .chp{margin:0;padding:3px 9px;font-size:12px}
 .xp{padding:6px 16px 10px;border-bottom:1px solid var(--bd)}
 #newsv #fw{height:auto;overflow:visible;border-top:0}
 </style></head><body>
@@ -70,8 +72,8 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 
 
 <div id="chartv">
-  <div class="blk">
-    <div class="cl">Temporalidad</div><div id="c1"></div>
+  <div class="tb"><div id="c1"></div><button class="chp" id="tgl"></button></div>
+  <div class="blk" id="cp" hidden>
     <div class="cl">Velas visibles</div><div id="c2"></div>
     <div class="cl">Indicadores (toca para añadir o quitar)</div><div id="c3"></div>
   </div>
@@ -94,7 +96,7 @@ const $=id=>document.getElementById(id);
 const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
 const pc=x=>(x>=0?"+":"")+x.toFixed(1).replace(".",",")+"%";
 const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
-let D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart";
+let D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart",HL=null,WS=null,WSOK=false,WSN=0,DT=0;
 let CFG={tf:"1h",n:100,ind:["sma20","vol","sig"],iv:2};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem("btcfg")||"{}"))}catch(e){}
 const save=()=>{try{localStorage.setItem("btcfg",JSON.stringify(CFG))}catch(e){}};
@@ -143,7 +145,7 @@ function sigCard(){
 }
 
 /* ---------- Gráfico ---------- */
-const TFS=[["15m","15 min"],["1h","1 hora"],["4h","4 horas"],["1d","1 día"]],NS=[[50,"50"],[100,"100"],[200,"200"]];
+const TFS=[["15m","15m"],["1h","1h"],["4h","4h"],["1d","1D"]],NS=[[50,"50"],[100,"100"],[200,"200"]];
 const INDS=[["sma20","SMA 20"],["ema50","EMA 50"],["sma200","SMA 200"],["boll","Bollinger"],["vol","Volumen"],["rsi","RSI"],["macd","MACD"],["sig","Mis señales"]];
 const TF={"15m":{k:15,f:"c15"},"1h":{k:60,f:"c60"},"4h":{k:240,f:"c240"},"1d":{k:1440,f:"c1440"}};
 function chips(id,items,on,tap){const c=$(id);c.textContent="";for(const[k,l]of items){const b=el("button","chp"+(on(k)?" on":""),l);b.onclick=()=>tap(k);c.appendChild(b)}}
@@ -151,7 +153,9 @@ function ctl(){
   chips("c1",TFS,k=>k===CFG.tf,k=>{CFG.tf=k;save();ctl();chart()});
   chips("c2",NS,k=>k===CFG.n,k=>{CFG.n=k;save();ctl();drawChart()});
   chips("c3",INDS,k=>CFG.ind.includes(k),k=>{CFG.ind=CFG.ind.includes(k)?CFG.ind.filter(x=>x!==k):[...CFG.ind,k];save();ctl();drawChart()});
+  $("tgl").textContent="Indicadores ("+CFG.ind.length+") "+($("cp").hidden?"▾":"▴");
 }
+$("tgl").onclick=()=>{$("cp").hidden=!$("cp").hidden;ctl();drawChart()};
 const sma=(a,n)=>a.map((_,i)=>{if(i<n-1)return null;let s=0;for(let j=i-n+1;j<=i;j++)s+=a[j];return s/n});
 function ema(a,n){const k=2/(n+1);let e=null;return a.map(x=>{e=e==null?x:x*k+e*(1-k);return e})}
 function boll(a){const m=sma(a,20),sd=a.map((_,i)=>{if(i<19)return null;let s=0;for(let j=i-19;j<=i;j++)s+=(a[j]-m[i])**2;return Math.sqrt(s/20)});return{m,u:m.map((v,i)=>v==null?null:v+2*sd[i]),l:m.map((v,i)=>v==null?null:v-2*sd[i])}}
@@ -223,8 +227,9 @@ function drawChart(){
   });
   q.fillStyle=MUT;q.textAlign="center";
   for(let i=0;i<5;i++){const j=Math.round((N-1)*i/4),d=new Date(V[j].t);q.fillText(CFG.tf==="1d"?d.toLocaleDateString("es-ES",{day:"2-digit",month:"short"}):d.toLocaleString("es-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}),Math.min(Math.max(X(j),40),w-Rm-40),H-6)}
-  CV={V,L,st};info(V.length-1);
-  cv.onpointermove=cv.onpointerdown=ev=>{const r=cv.getBoundingClientRect(),i=Math.floor((ev.clientX-r.left-CV.L)/CV.st);if(i>=0&&i<CV.V.length)info(i)};
+  CV={V,L,st};info(HL!=null&&HL<V.length?HL:V.length-1);
+  cv.onpointermove=cv.onpointerdown=ev=>{const r=cv.getBoundingClientRect(),i=Math.floor((ev.clientX-r.left-CV.L)/CV.st);if(i>=0&&i<CV.V.length){HL=i;info(i)}};
+  cv.onpointerup=cv.onpointerleave=()=>{setTimeout(()=>{HL=null},4000)};
 }
 
 /* ---------- Señales ---------- */
@@ -289,8 +294,34 @@ function sigs(){
   }
 }
 
+/* ---------- En vivo (WebSocket) ---------- */
+function tick(p){
+  LIVEP=p;if(LIVE)LIVE.textContent="$"+fmt(p)+" ● en vivo";
+  const a=CD[CFG.tf];if(!a||!a.length)return;
+  const ms=TF[CFG.tf].k*60000,c=a[a.length-1],t=Date.now();
+  if(t>=c.t+ms){const s=Math.floor(t/ms)*ms;a.push({t:s,o:p,h:p,l:p,c:p,v:0})}
+  else{c.c=p;c.h=Math.max(c.h,p);c.l=Math.min(c.l,p)}
+  if(VIEW==="chart"&&!DT)DT=setTimeout(()=>{DT=0;drawChart()},1000);
+}
+function connect(){
+  const old=WS;WS=null;try{old&&old.close()}catch(e){}
+  const kr=WSN%2===0;let ws;
+  try{ws=new WebSocket(kr?"wss://ws.kraken.com/v2":"wss://ws-feed.exchange.coinbase.com")}catch(e){WSN++;setTimeout(connect,5000);return}
+  WS=ws;
+  ws.onopen=()=>ws.send(JSON.stringify(kr?{method:"subscribe",params:{channel:"ticker",symbol:["BTC/USD"]}}:{type:"subscribe",product_ids:["BTC-USD"],channels:["ticker"]}));
+  ws.onmessage=ev=>{try{
+    const m=JSON.parse(ev.data);let p=null;
+    if(kr&&m.channel==="ticker"&&m.data&&m.data[0])p=+m.data[0].last;else if(!kr&&m.type==="ticker")p=+m.price;
+    if(p>0){WSOK=true;tick(p)}
+  }catch(e){}};
+  const bye=()=>{if(WS!==ws)return;WS=null;WSOK=false;WSN++;setTimeout(connect,3000)};
+  ws.onclose=bye;ws.onerror=bye;
+}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&!WSOK)connect()});
+
 /* ---------- Carga ---------- */
 async function live(){
+  if(WSOK)return;
   for(const u of ["https://api.coinbase.com/v2/prices/BTC-USD/spot","https://api.kraken.com/0/public/Ticker?pair=XBTUSD"]){
     try{const j=await(await fetch(u)).json();const p=j.data?+j.data.amount:+j.result.XXBTZUSD.c[0];if(p&&LIVE){LIVE.textContent="$"+fmt(p)+" ●";LIVEP=p;return}}catch(e){}
   }
@@ -311,5 +342,5 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>view(b.datase
 $("rf").onclick=()=>{load();if(VIEW==="chart")chart()};
 window.addEventListener("resize",()=>{if(VIEW==="chart")drawChart()});
 try{matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>{if(VIEW==="chart")drawChart()})}catch(e){}
-ctl();load();chart();setInterval(load,300000);setInterval(live,30000);setInterval(()=>{if(VIEW==="chart")chart()},60000);
+ctl();load();chart();connect();setInterval(load,300000);setInterval(live,30000);setInterval(()=>{if(VIEW==="chart")chart()},60000);
 </script></body></html>
