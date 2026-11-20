@@ -671,10 +671,48 @@ def adjust_threshold(st, p, dates, fgmap, L):
 
 def learn_view(st, info):
     rank = sorted(((k, h, n) for k, (h, n) in info.items() if n >= 30 and k in LAB), key=lambda t: -t[1])
-    nm = lambda t: f"{LAB[t[0]]} ({t[1]} %)"
+    nm = lambda t: f"{LAB[t[0]]} {t[1]} %"
     return {"th": st.get("th", 35), "caution": bool(st.get("caution")), "rec": st.get("rec30", [0, 0]),
             "best": [nm(t) for t in rank[:3]], "worst": [nm(t) for t in rank[-3:][::-1]] if len(rank) > 3 else [],
             "log": st.get("learn_log", [])[-5:], "samples": max((n for _, (h, n) in info.items()), default=0)}
+
+
+def build_read(sc, W, score, action, p, rd, r4, fg, items, why, prev):
+    """Lectura breve del mercado (pestaña Gráfico): el texto solo cambia cuando cambia algo relevante."""
+    rows, price = r4 or rd, p[-1]
+    m24 = (r4[-1][4] / r4[-7][4] - 1) * 100 if len(r4) > 7 else (p[-1] / p[-2] - 1) * 100
+    m7 = (p[-1] / p[-8] - 1) * 100 if len(p) > 8 else 0.0
+    mw = lambda x: "sube con fuerza" if x >= 3 else "sube" if x >= 1 else "cae con fuerza" if x <= -3 else "baja" if x <= -1 else "se mantiene lateral"
+    sup, res = key_levels(rows, price)
+    above = price > ema([r[4] for r in rows], 50)[-1]
+    zone = "soporte" if price <= sup * 1.015 else "resistencia" if price >= res * .985 else "medio"
+    bias = ("alcista fuerte" if score >= 35 else "alcista leve" if score >= 15 else "neutral" if score > -15
+            else "bajista leve" if score > -35 else "bajista fuerte")
+    nws = sc.get("news")
+    tone = "" if nws is None else "positivas" if nws > .2 else "negativas" if nws < -.2 else "mixtas"
+    facts = {"a": action, "b": bias, "m24": mw(m24), "m7": mw(m7), "z": zone, "e": bool(above),
+             "f": fg_word(fg) if fg is not None else "", "n": tone, "g": why[0] if why else ""}
+    n = lambda v: f"{v:,.0f}".replace(",", ".")
+    part = lambda x: mw(x) if mw(x) == "se mantiene lateral" else f"{mw(x)} {abs(x):.1f} %".replace(".", ",")
+    pos = "por encima" if above else "por debajo"
+    t = [f"BTC {part(m24)} en 24 h y {part(m7)} en la semana."]
+    t.append(f"Cotiza {pos} de su media de corto plazo, cerca del soporte {n(sup)}." if zone == "soporte"
+             else f"Cotiza {pos} de su media de corto plazo, cerca de la resistencia {n(res)}." if zone == "resistencia"
+             else f"Cotiza {pos} de su media de corto plazo; soporte en {n(sup)} y resistencia en {n(res)}.")
+    t.append({"alcista fuerte": "Las señales apuntan claramente al alza.", "alcista leve": "Las señales se inclinan al alza sin llegar a dar compra.",
+              "neutral": "Las señales no tienen una dirección clara.", "bajista leve": "Las señales se inclinan a la baja sin llegar a dar venta.",
+              "bajista fuerte": "Las señales apuntan claramente a la baja."}[bias])
+    if why: t.append("Ojo: " + why[0] + ".")
+    if prev:
+        ch = []
+        if prev.get("a") != action: ch.append(f"la señal pasó a {action}")
+        if prev.get("b") != bias: ch.append(f"el sesgo pasó a {bias}")
+        if prev.get("m24") != facts["m24"]: ch.append(f"el precio ahora {facts['m24']} en 24 h")
+        if prev.get("z") != zone and zone != "medio": ch.append(f"el precio llegó cerca del {zone}")
+        if facts["f"] and prev.get("f") != facts["f"]: ch.append(f"el ánimo pasó a {facts['f']}")
+        if facts["n"] and prev.get("n") != facts["n"]: ch.append(f"las noticias pasaron a ser {facts['n']}")
+        if ch: t.append("Novedad: " + "; ".join(ch[:2]) + ".")
+    return " ".join(t), facts
 
 
 def build_report(sc, W, score, p, rd, r4, items, fg, why, caution=False):
@@ -866,7 +904,9 @@ def main():
     except Exception as e: print("comparativa", e)
     write_pwa()
     write_candles(rd, r4, r1, r15)
-    write_feed(items, {"learn": learn_view(st, xinfo), "expl": expl, "lv": ({k: round(v) for k, v in lv.items()} if lv else None), "gates": why, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
+    rtext, rfacts = build_read(sc, {**w, **xw}, score, action, p, rd, r4, fg, items, why, st.get("read", {}).get("facts"))
+    if st.get("read", {}).get("facts") != rfacts: st["read"] = {"facts": rfacts, "text": rtext}
+    write_feed(items, {"read": st["read"]["text"], "learn": learn_view(st, xinfo), "expl": expl, "lv": ({k: round(v) for k, v in lv.items()} if lv else None), "gates": why, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
                        "weights": {k: round(v, 3) for k, v in w.items()}}, sigs)
     st["weights"] = {k: round(v, 3) for k, v in w.items()}
     json.dump(st, open(STATE, "w"), indent=1)
