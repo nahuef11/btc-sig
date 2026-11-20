@@ -146,33 +146,12 @@ def news_score(items):
     return num / den if den else (0.0 if items else None)
 
 
-def simulate(p, dates, fgmap, days=365, fee=.001):
-    """Backtest con pesos base: con y sin filtro de tendencia, frente a comprar y mantener."""
-    st = len(p) - days
-    sig = []
-    for i in range(st, len(p)):
-        w_ = p[max(0, i - 299):i + 1]
-        sc = scores(w_, fgmap.get(dates[i]))
-        sig.append((combine(sc, BASE), w_[-1] < sum(w_[-200:]) / 200, sc["macd"]))
-
-    def run(gate):
-        e, inm, eq, marks = 1.0, False, [1.0], []
-        for j, (s_, below, m) in enumerate(sig):
-            if j:
-                if inm: e *= p[st + j] / p[st + j - 1]
-                eq.append(e)
-            buy = s_ >= TH and not (gate and below and m < 0 and s_ < 60)
-            sell = s_ <= -TH and not (gate and not below and m > 0 and s_ > -60)
-            if buy and not inm: inm, e = True, e * (1 - fee); marks.append((j, "B"))
-            elif sell and inm: inm, e = False, e * (1 - fee); marks.append((j, "S"))
-        return eq, marks
-
-    (eq, marks), (eq0, _) = run(True), run(False)
-    hold = [x / p[st] for x in p[st:]]
-    dd = lambda a: min(v / max(a[:j + 1]) - 1 for j, v in enumerate(a)) * 100
-    return {"strat": round((eq[-1] - 1) * 100, 1), "strat0": round((eq0[-1] - 1) * 100, 1), "hold": round((hold[-1] - 1) * 100, 1),
-            "dd_s": round(dd(eq), 1), "dd_h": round(dd(hold), 1), "trades": len(marks), "days": days}, \
-        {"p": [round(x) for x in p[st:]], "m": marks, "d0": dates[st]}
+def write_candles(*sets):
+    """Velas (diario, 4h, 1h, 15m) para el gráfico de la app."""
+    os.makedirs("docs", exist_ok=True)
+    out = {k: [[int(r[0]), round(r[1], 1), round(r[2], 1), round(r[3], 1), round(r[4], 1), round(r[6], 1)] for r in rows[-300:]]
+           for k, rows in zip(("c1440", "c240", "c60", "c15"), sets) if rows}
+    json.dump(out, open("docs/candles.json", "w"), separators=(",", ":"))
 
 
 def write_pwa():
@@ -282,14 +261,43 @@ LAB = {"rsi": "RSI diario", "macd": "MACD diario", "trend": "tendencia (precio v
        "ls": "largos/cortos", "oi": "interés abierto", "nasdaq": "Nasdaq", "dxy": "dólar (DXY)"}
 
 
+PHR = {
+    "rsi": ("el precio ha caído mucho y es probable un rebote", "el precio ha subido mucho y puede corregir"),
+    "macd": ("el impulso del precio es alcista", "el impulso del precio es bajista"),
+    "trend": ("el precio está por encima de su tendencia media", "el precio está por debajo de su tendencia media"),
+    "bb": ("el precio está en la parte baja de su rango habitual", "el precio está en la parte alta de su rango habitual"),
+    "fg": ("el mercado tiene miedo, y eso suele ser buena zona para comprar", "el mercado está eufórico, y eso suele ser zona de riesgo"),
+    "news": ("las noticias recientes son positivas", "las noticias recientes son negativas"),
+    "rsi4h": ("a corto plazo (4 horas) el precio parece barato", "a corto plazo (4 horas) el precio parece caro"),
+    "macd4h": ("el impulso de las últimas horas es alcista", "el impulso de las últimas horas es bajista"),
+    "rsi1h": ("en la última hora el precio parece barato", "en la última hora el precio parece caro"),
+    "macd1h": ("el impulso de la última hora es alcista", "el impulso de la última hora es bajista"),
+    "cross": ("la tendencia de fondo es alcista", "la tendencia de fondo es bajista"),
+    "stoch": ("el precio está cerca de sus mínimos recientes", "el precio está cerca de sus máximos recientes"),
+    "obv": ("el volumen acompaña a las subidas", "el volumen acompaña a las bajadas"),
+    "funding": ("hay más apuestas a la baja que a la subida con apalancamiento, algo que suele preceder a rebotes",
+                "hay demasiadas apuestas a la subida con apalancamiento, con riesgo de caída brusca"),
+    "ls": ("hay más inversores en corto que en largo, algo que suele preceder a rebotes",
+           "hay muchos más inversores en largo que en corto, con el mercado saturado de compradores"),
+    "oi": ("entra dinero nuevo acompañando la subida", "entra dinero nuevo apostando a la baja"),
+    "nasdaq": ("la bolsa tecnológica está fuerte, lo que suele ayudar a BTC", "la bolsa tecnológica está débil, lo que suele lastrar a BTC"),
+    "dxy": ("el dólar está débil, favorable para BTC", "el dólar está fuerte, desfavorable para BTC"),
+}
+
+
 def explain(sc, W, score, action, raw, why):
-    """Explicación corta de por qué se tomó la decisión."""
-    top = sorted(sc, key=lambda k: abs(sc[k] * W[k]), reverse=True)[:3]
-    pro = ", ".join(f"{LAB[k]} ({'compra' if sc[k] > 0 else 'venta'})" for k in top)
-    nb, ns = sum(v >= .2 for v in sc.values()), sum(v <= -.2 for v in sc.values())
-    t = f"Puntuación {score:+d} (umbral ±{TH}): {nb} filtros a favor de comprar y {ns} de vender. Pesan más: {pro}."
-    if why: t += f" La señal de {raw.lower()} se bloqueó por: {'; '.join(why)}."
-    elif action == "ESPERAR": t += " No llega al umbral, por eso espera."
+    """Explicación en lenguaje claro de por qué se tomó la decisión (sin cifras)."""
+    order = sorted(sc, key=lambda k: -abs(sc[k] * W[k]))
+    up = [k for k in order if sc[k] >= .2 and k in PHR]
+    down = [k for k in order if sc[k] <= -.2 and k in PHR]
+    if why: head = f"Había señal de {'compra' if raw == 'COMPRAR' else 'venta'}, pero se prefiere esperar porque {'; '.join(why)}."
+    elif action == "COMPRAR": head = "Se recomienda comprar: la mayoría de las señales apuntan al alza."
+    elif action == "VENDER": head = "Se recomienda vender: la mayoría de las señales apuntan a la baja."
+    else: head = "Se recomienda esperar: las señales no son lo bastante claras y se contradicen."
+    nu, nd = (3, 1) if action == "COMPRAR" else (1, 3) if action == "VENDER" else (2, 2)
+    t = head
+    if up: t += " Apuntan al alza: " + "; ".join(PHR[k][0] for k in up[:nu]) + "."
+    if down: t += " Apuntan a la baja: " + "; ".join(PHR[k][1] for k in down[:nd]) + "."
     return t
 
 
@@ -357,14 +365,14 @@ def gates(raw, score, rd, items, sc):
     why, c = [], [r[4] for r in rd]
     sma200 = sum(c[-200:]) / 200
     if raw == "COMPRAR" and c[-1] < sma200 and sc.get("macd", 0) < 0 and score < 60:
-        why.append("tendencia bajista (bajo SMA200 y MACD negativo)")
+        why.append("el mercado está en tendencia bajista y comprar contra la tendencia es arriesgado")
     if raw == "VENDER" and c[-1] > sma200 and sc.get("macd", 0) > 0 and score > -60:
-        why.append("tendencia alcista (sobre SMA200 y MACD positivo)")
+        why.append("el mercado está en tendencia alcista y vender contra la tendencia puede hacerte perder subidas")
     trp = [max(r[2] - r[3], abs(r[2] - rd[i][4]), abs(r[3] - rd[i][4])) / r[4] for i, r in enumerate(rd[1:])]
-    if raw != "ESPERAR" and sum(trp[-3:]) / 3 > 2 * sum(trp[-90:]) / 90: why.append("volatilidad extrema")
+    if raw != "ESPERAR" and sum(trp[-3:]) / 3 > 2 * sum(trp[-90:]) / 90: why.append("el mercado está demasiado agitado ahora mismo")
     lim = (now() - dt.timedelta(hours=6)).isoformat()
     if raw != "ESPERAR" and sum(1 for i in items if i["impact"] and i["ts"] >= lim) >= 3:
-        why.append("ráfaga de noticias de alto impacto")
+        why.append("hay una ráfaga de noticias importantes y conviene esperar a que se calme")
     return why
 
 
@@ -372,18 +380,21 @@ def norm(t):
     return re.sub(r"[^a-z0-9]", "", re.sub(r" - [^-]{2,30}$", "", t.lower()))[:55]
 
 
-def log_signal(price, score, action, det, sc, why, expl):
-    """Una señal cada 2 horas (docs/signals.json), para el registro por días."""
+def log_signal(price, score, action, sc, why, expl):
+    """Una señal por hora (docs/signals.json). La app permite verlas cada 1, 2, 4, 6 o 12 h."""
     os.makedirs("docs", exist_ok=True)
     L = load_log()
     n = now()
-    slot = n.strftime("%Y-%m-%d") + str(n.hour // 2)
+    slot = n.strftime("%Y-%m-%d") + str(n.hour)
     if not L or L[-1].get("slot") != slot:
         e = {"slot": slot, "ts": n.isoformat(timespec="seconds"), "price": round(price), "score": score,
-             "action": action, "det": det, "expl": expl, "sc": {k: round(v, 2) for k, v in sc.items()}}
+             "action": action, "expl": expl, "sc": {k: round(v, 1) for k, v in sc.items()}}
         if why: e["gate"] = "; ".join(why)
         L.append(e)
-    json.dump(L[-400:], open("docs/signals.json", "w"), ensure_ascii=False)
+    L = L[-480:]
+    for e in L[:-240]:
+        e.pop("sc", None); e.pop("expl", None); e.pop("det", None)
+    json.dump(L, open("docs/signals.json", "w"), ensure_ascii=False)
 
 
 def write_feed(items, pulse, sigs):
@@ -430,6 +441,8 @@ def main():
     dates = [dt.datetime.fromtimestamp(r[0], dt.timezone.utc).strftime("%Y-%m-%d") for r in rd]
     try: r4, r1 = ohlc(240), ohlc(60)
     except Exception as e: r4, r1 = [], []; print("OHLC intradía", e)
+    try: r15 = ohlc(15)
+    except Exception as e: r15 = []; print("OHLC 15m", e)
     fgmap = fng()
     w, info = recalibrate(p, dates, fgmap)
     fg = fgmap.get(dates[-1], next(iter(fgmap.values())) if fgmap else None)
@@ -451,15 +464,16 @@ def main():
 
     det = " | ".join(f"{k} {v:+.2f}" for k, v in sc.items())
     sigs, ts0 = [], st["history"][-1]["ts"]
-    log_signal(p[-1], score, action, det, sc, why, explain(sc, {**w, **xw}, score, action, raw, why))
+    expl = explain(sc, {**w, **xw}, score, action, raw, why)
+    log_signal(p[-1], score, action, sc, why, expl)
     if action != st.get("last"):
-        sigs.append({"id": "sig-" + ts0, "type": "signal", "source": "Señales BTC", "action": action, "detail": det,
+        sigs.append({"id": "sig-" + ts0, "type": "signal", "source": "Señales BTC", "action": action, "detail": expl,
                      "text": f"{action}" + (f" (señal {raw} bloqueada: {'; '.join(why)})" if why else "") + f" · puntuación {score} · BTC {p[-1]:,.0f} USD", "ts": ts0})
         if action != "ESPERAR":
             a, px = atr(rd), p[-1]
             lv = (f"Stop sugerido {px - 2 * a:,.0f} · objetivo {px + 3 * a:,.0f}" if action == "COMPRAR"
                   else f"Invalidación sobre {px + 2 * a:,.0f} · objetivo bajista {px - 3 * a:,.0f}")
-            telegram(f"{'🟢' if action == 'COMPRAR' else '🔴'} {action} BTC\nPrecio {px:,.0f} USD · puntuación {score}\n{lv} (ATR diario)\n{det}")
+            telegram(f"{'🟢' if action == 'COMPRAR' else '🔴'} {action} BTC\nPrecio {px:,.0f} USD · puntuación {score}\n{lv} (ATR diario)\n{expl}")
     st["last"] = action
 
     n = now()
@@ -477,11 +491,12 @@ def main():
         for i in [x for x in items if x["impact"] and x["id"] not in seen][:3]:
             telegram(f"⚡ {i['source']}: {i['text']}\n{i['link']}")
     tot, ok = accuracy(st["history"])
-    sim, chart = simulate(p, dates, fgmap)
-    try: variants = compare(rd, p, dates, fgmap)
-    except Exception as e: variants = []; print('comparativa', e)
+    try:
+        for v in compare(rd, p, dates, fgmap): print("COMPARATIVA", v)  # solo en el registro del workflow
+    except Exception as e: print("comparativa", e)
     write_pwa()
-    write_feed(items, {"cmp": variants, "gates": why, "sim": sim, "chart": chart, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
+    write_candles(rd, r4, r1, r15)
+    write_feed(items, {"expl": expl, "gates": why, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
                        "weights": {k: round(v, 3) for k, v in w.items()}}, sigs)
     st["weights"] = {k: round(v, 3) for k, v in w.items()}
     json.dump(st, open(STATE, "w"), indent=1)
