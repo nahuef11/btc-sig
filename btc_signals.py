@@ -444,7 +444,7 @@ def telegram_photo(path, caption):
     urllib.request.urlopen(req, timeout=60)
 
 
-def make_chart(path, rows, action, price, a, log):
+def make_chart(path, rows, action, price, lv, log):
     """Velas de 4 h con EMA50, líneas de tendencia (soporte/resistencia), flechas de señales y stop/objetivo."""
     import matplotlib
     matplotlib.use("Agg")
@@ -454,8 +454,11 @@ def make_chart(path, rows, action, price, a, log):
     n = len(R)
     BG, FG, UP, DN = "#0f1115", "#e7e9ea", "#16c784", "#ea3943"
     buy = action == "COMPRAR"
-    stop, tgt = (price - 2 * a, price + 3 * a) if buy else (price + 2 * a, price - 3 * a)
-    lo, hi = min(min(r[3] for r in R), stop, tgt), max(max(r[2] for r in R), stop, tgt)
+    lines = [(lv["sl"], DN, "-", f"SL fut {lv['sl']:,.0f}"), (lv["tp1"], UP, "-", f"TP1 {lv['tp1']:,.0f}"),
+             (lv["tp2"], UP, "-", f"TP2 {lv['tp2']:,.0f}"),
+             (lv["stop_spot"], DN, ":", f"Stop spot {lv['stop_spot']:,.0f}"), (lv["obj_spot"], UP, ":", f"Obj. spot {lv['obj_spot']:,.0f}")]
+    ys = [l[0] for l in lines]
+    lo, hi = min(min(r[3] for r in R), *ys), max(max(r[2] for r in R), *ys)
     off = (hi - lo) * .05
     fig, ax = plt.subplots(figsize=(10, 6), dpi=100, facecolor=BG)
     ax.set_facecolor(BG)
@@ -485,10 +488,10 @@ def make_chart(path, rows, action, price, a, log):
     ax.annotate(action, xy=(x, R[-1][3] - off * .2 if buy else R[-1][2] + off * .2),
                 xytext=(x, R[-1][3] - off * 2.4 if buy else R[-1][2] + off * 2.4), ha="center", va="top" if buy else "bottom",
                 color=c, fontsize=11, fontweight="bold", arrowprops=dict(arrowstyle="-|>", color=c, lw=3, mutation_scale=22))
-    for y, col, lab in ((stop, DN, "Stop" if buy else "Invalidación"), (tgt, UP, "Objetivo")):
-        ax.hlines(y, n - 14, n + 4, color=col, ls=":", lw=1.3)
-        ax.text(n + 4.5, y, f"{lab} {y:,.0f}", color=col, fontsize=9, va="center")
-    ax.set_xlim(-1, n + 14)
+    for y, col, ls, lab in lines:
+        ax.hlines(y, n - 14, n + 4, color=col, ls=ls, lw=1.2)
+        ax.text(n + 4.5, y, lab, color=col, fontsize=8, va="center")
+    ax.set_xlim(-1, n + 19)
     ax.set_ylim(lo - off * 3.2, hi + off * 3.2)
     ticks = list(range(0, n, 15))
     ax.set_xticks(ticks)
@@ -505,14 +508,27 @@ def make_chart(path, rows, action, price, a, log):
     plt.close(fig)
 
 
+def levels(action, price, a, a4):
+    """Niveles: spot con el rango diario (stop 2x, objetivo 3x) y futuros con el de 4 h (stop 1,5x, objetivos 2x y 3,5x)."""
+    g = 1 if action == "COMPRAR" else -1
+    return {"stop_spot": price - g * 2 * a, "obj_spot": price + g * 3 * a,
+            "sl": price - g * 1.5 * a4, "tp1": price + g * 2 * a4, "tp2": price + g * 3.5 * a4}
+
+
 def publish_signal(action, price, a, expl, rows, test=False, real=None):
-    lv = (f"Stop sugerido {price - 2 * a:,.0f} · objetivo {price + 3 * a:,.0f}" if action == "COMPRAR"
-          else f"Invalidación sobre {price + 2 * a:,.0f} · objetivo bajista {price - 3 * a:,.0f}")
+    lv = levels(action, price, a, atr(rows))
+    long_ = action == "COMPRAR"
+    lev = max(1, min(5, int(1 / (2 * abs(price - lv["sl"]) / price))))  # liquidación al menos al doble de distancia que el stop
+    spot = (f"📈 Spot: comprar · stop {lv['stop_spot']:,.0f} · objetivo {lv['obj_spot']:,.0f}" if long_
+            else f"📉 Spot: vender o salir · invalidación sobre {lv['stop_spot']:,.0f} · objetivo bajista {lv['obj_spot']:,.0f}")
+    fut = (f"⚡ Futuros: {'LONG' if long_ else 'SHORT'} · stop {lv['sl']:,.0f} · objetivos {lv['tp1']:,.0f} / {lv['tp2']:,.0f} · "
+           f"apalancamiento máx. sugerido {lev}x")
     cap = ((f"🧪 PRUEBA del canal (no es una señal real; ahora mismo la señal es {real})\n\n" if test else "")
-           + f"{'🟢' if action == 'COMPRAR' else '🔴'} {action} BTC · ${price:,.0f}\n\n{expl}\n\n{lv}\n\n"
-           "⚠️ Información orientativa, no es asesoramiento financiero.")
+           + f"{'🟢' if long_ else '🔴'} {action} BTC · ${price:,.0f}\n\n{expl}\n\n{spot}\n{fut}\n\n"
+           "⚠️ Información orientativa, no es asesoramiento financiero. Los futuros con apalancamiento pueden liquidarte: "
+           "arriesga como máximo el 1-2 % de tu capital por operación.")
     try:
-        make_chart("chart.png", rows, action, price, a, load_log())
+        make_chart("chart.png", rows, action, price, lv, load_log())
         telegram_photo("chart.png", cap)
     except Exception as e:
         print("Gráfico o envío con foto falló:", e)
