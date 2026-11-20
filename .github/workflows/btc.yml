@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: "7 * * * *"
   workflow_dispatch:
+    inputs:
+      probar:
+        description: "Publicar un mensaje de prueba en Telegram"
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -13,10 +18,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install matplotlib
       - run: python btc_signals.py
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          TEST_POST: ${{ github.event.inputs.probar }}
       - run: |
           git config user.name "btc-bot"
           git config user.email "bot@users.noreply.github.com"
