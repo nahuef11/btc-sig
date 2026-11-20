@@ -381,7 +381,7 @@ def norm(t):
     return re.sub(r"[^a-z0-9]", "", re.sub(r" - [^-]{2,30}$", "", t.lower()))[:55]
 
 
-def log_signal(price, score, action, sc, why, expl):
+def log_signal(price, score, action, sc, why, expl, lv=None):
     """Una señal por hora (docs/signals.json). La app permite verlas cada 1, 2, 4, 6 o 12 h."""
     os.makedirs("docs", exist_ok=True)
     L = load_log()
@@ -391,6 +391,7 @@ def log_signal(price, score, action, sc, why, expl):
         e = {"slot": slot, "ts": n.isoformat(timespec="seconds"), "price": round(price), "score": score,
              "action": action, "expl": expl, "sc": {k: round(v, 1) for k, v in sc.items()}}
         if why: e["gate"] = "; ".join(why)
+        if lv: e["lv"] = {k: round(v) for k, v in lv.items()}
         L.append(e)
     L = L[-480:]
     for e in L[:-240]:
@@ -512,13 +513,14 @@ def levels(action, price, a, a4):
     """Niveles: spot con el rango diario (stop 2x, objetivo 3x) y futuros con el de 4 h (stop 1,5x, objetivos 2x y 3,5x)."""
     g = 1 if action == "COMPRAR" else -1
     return {"stop_spot": price - g * 2 * a, "obj_spot": price + g * 3 * a,
-            "sl": price - g * 1.5 * a4, "tp1": price + g * 2 * a4, "tp2": price + g * 3.5 * a4}
+            "sl": price - g * 1.5 * a4, "tp1": price + g * 2 * a4, "tp2": price + g * 3.5 * a4,
+            "lev": max(1, min(5, int(1 / (2 * 1.5 * a4 / price))))}  # liquidación al menos al doble de distancia que el stop
 
 
 def publish_signal(action, price, a, expl, rows, test=False, real=None):
     lv = levels(action, price, a, atr(rows))
     long_ = action == "COMPRAR"
-    lev = max(1, min(5, int(1 / (2 * abs(price - lv["sl"]) / price))))  # liquidación al menos al doble de distancia que el stop
+    lev = lv["lev"]
     spot = (f"📈 Spot: comprar · stop {lv['stop_spot']:,.0f} · objetivo {lv['obj_spot']:,.0f}" if long_
             else f"📉 Spot: vender o salir · invalidación sobre {lv['stop_spot']:,.0f} · objetivo bajista {lv['obj_spot']:,.0f}")
     fut = (f"⚡ Futuros: {'LONG' if long_ else 'SHORT'} · stop {lv['sl']:,.0f} · objetivos {lv['tp1']:,.0f} / {lv['tp2']:,.0f} · "
@@ -581,7 +583,8 @@ def main():
     det = " | ".join(f"{k} {v:+.2f}" for k, v in sc.items())
     sigs, ts0 = [], st["history"][-1]["ts"]
     expl = explain(sc, {**w, **xw}, score, action, raw, why)
-    log_signal(p[-1], score, action, sc, why, expl)
+    lv = levels(action, p[-1], atr(rd), atr(r4 or rd)) if action != "ESPERAR" else None
+    log_signal(p[-1], score, action, sc, why, expl, lv)
     if action != st.get("last"):
         sigs.append({"id": "sig-" + ts0, "type": "signal", "source": "Señales BTC", "action": action, "detail": expl,
                      "text": f"{action}" + (f" (señal {raw} bloqueada: {'; '.join(why)})" if why else "") + f" · puntuación {score} · BTC {p[-1]:,.0f} USD", "ts": ts0})
@@ -612,7 +615,7 @@ def main():
     except Exception as e: print("comparativa", e)
     write_pwa()
     write_candles(rd, r4, r1, r15)
-    write_feed(items, {"expl": expl, "gates": why, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
+    write_feed(items, {"expl": expl, "lv": ({k: round(v) for k, v in lv.items()} if lv else None), "gates": why, "price": p[-1], "score": score, "action": action, "fg": fg, "acc": [tot, ok],
                        "weights": {k: round(v, 3) for k, v in w.items()}}, sigs)
     st["weights"] = {k: round(v, 3) for k, v in w.items()}
     json.dump(st, open(STATE, "w"), indent=1)
