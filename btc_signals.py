@@ -155,7 +155,7 @@ def write_candles(*sets):
 
 
 FEED_SVG = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="22" fill="#0f1115"/>'
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="22" fill="#000000"/>'
     '<polyline points="16,46 32,38 44,48 60,28 80,16" fill="none" stroke="#f7931a" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>'
     '<circle cx="80" cy="16" r="6" fill="#16c784"/><rect x="18" y="58" width="6" height="28" rx="2" fill="#e7e9ea"/>'
     '<rect x="18" y="58" width="32" height="6" rx="2" fill="#e7e9ea"/><rect x="18" y="68" width="22" height="6" rx="2" fill="#e7e9ea"/>'
@@ -170,8 +170,8 @@ def feed_icon(size, bleed=None):
     d = ImageDraw.Draw(img)
     k = n / 96
     sc = 1.0 if bleed is None else bleed
-    if bleed is None: d.rounded_rectangle((0, 0, n - 1, n - 1), radius=22 * k, fill="#0f1115")
-    else: d.rectangle((0, 0, n, n), fill="#0f1115")
+    if bleed is None: d.rounded_rectangle((0, 0, n - 1, n - 1), radius=22 * k, fill="#000000")
+    else: d.rectangle((0, 0, n, n), fill="#000000")
     T = lambda u: (48 + (u - 48) * sc) * k
     box = lambda x, y, w, h, c, r=2: d.rounded_rectangle((T(x), T(y), T(x + w), T(y + h)), radius=r * sc * k, fill=c)
     pts = [(T(x), T(y)) for x, y in ((16, 46), (32, 38), (44, 48), (60, 28), (80, 16))]
@@ -186,7 +186,7 @@ def feed_icon(size, bleed=None):
 
 
 def write_pwa():
-    if os.path.exists("docs/feed-512.png"): return
+    if os.path.exists("docs/feed-512.png") and os.path.exists("docs/feed.webmanifest"): return
     os.makedirs("docs", exist_ok=True)
     try:
         feed_icon(192).save("docs/feed-192.png"); feed_icon(512).save("docs/feed-512.png")
@@ -199,7 +199,11 @@ def write_pwa():
                "icons": [{"src": "feed-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
                          {"src": "feed-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
                          {"src": "feed-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]},
-              open("docs/manifest.json", "w"))
+              open("docs/feed.webmanifest", "w"))
+
+
+XW = {"rsi4h": .06, "macd4h": .06, "rsi1h": .03, "macd1h": .03, "cross": .06, "stoch": .04, "obv": .04,
+      "funding": .06, "ls": .03, "oi": .03, "nasdaq": .05, "dxy": .03}
 
 
 def ohlc(interval):
