@@ -154,33 +154,52 @@ def write_candles(*sets):
     json.dump(out, open("docs/candles.json", "w"), separators=(",", ":"))
 
 
+FEED_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="22" fill="#0f1115"/>'
+    '<polyline points="16,46 32,38 44,48 60,28 80,16" fill="none" stroke="#f7931a" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>'
+    '<circle cx="80" cy="16" r="6" fill="#16c784"/><rect x="18" y="58" width="6" height="28" rx="2" fill="#e7e9ea"/>'
+    '<rect x="18" y="58" width="32" height="6" rx="2" fill="#e7e9ea"/><rect x="18" y="68" width="22" height="6" rx="2" fill="#e7e9ea"/>'
+    '<rect x="58" y="60" width="22" height="4" rx="2" fill="#3a3f45"/><rect x="58" y="70" width="16" height="4" rx="2" fill="#3a3f45"/></svg>')
+
+
+def feed_icon(size, bleed=None):
+    """Icono de Feed. bleed=None: baldosa redondeada; bleed=0.74: cuadrado a sangre con el dibujo reducido (máscaras y foto de perfil)."""
+    from PIL import Image, ImageDraw
+    n = size * 4
+    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    k = n / 96
+    sc = 1.0 if bleed is None else bleed
+    if bleed is None: d.rounded_rectangle((0, 0, n - 1, n - 1), radius=22 * k, fill="#0f1115")
+    else: d.rectangle((0, 0, n, n), fill="#0f1115")
+    T = lambda u: (48 + (u - 48) * sc) * k
+    box = lambda x, y, w, h, c, r=2: d.rounded_rectangle((T(x), T(y), T(x + w), T(y + h)), radius=r * sc * k, fill=c)
+    pts = [(T(x), T(y)) for x, y in ((16, 46), (32, 38), (44, 48), (60, 28), (80, 16))]
+    w = 4.5 * sc * k
+    d.line(pts, fill="#f7931a", width=int(w), joint="curve")
+    for x, y in pts: d.ellipse((x - w / 2, y - w / 2, x + w / 2, y + w / 2), fill="#f7931a")
+    x, y, r = T(80), T(16), 6 * sc * k
+    d.ellipse((x - r, y - r, x + r, y + r), fill="#16c784")
+    box(18, 58, 6, 28, "#e7e9ea"); box(18, 58, 32, 6, "#e7e9ea"); box(18, 68, 22, 6, "#e7e9ea")
+    box(58, 60, 22, 4, "#3a3f45"); box(58, 70, 16, 4, "#3a3f45")
+    return img.resize((size, size), Image.LANCZOS)
+
+
 def write_pwa():
-    if os.path.exists("docs/icon-512.png"): return
+    if os.path.exists("docs/feed-512.png"): return
     os.makedirs("docs", exist_ok=True)
-    B = ["11110", "10001", "10001", "11110", "10001", "10001", "11110"]
-    for size in (192, 512):
-        c, r, cell = size / 2, size * .46, size // 11
-        ox, oy = (size - 5 * cell) // 2, (size - 7 * cell) // 2
-        raw = b""
-        for y in range(size):
-            row = bytearray([0])
-            for x in range(size):
-                ins = (x - c) ** 2 + (y - c) ** 2 <= r * r
-                gx, gy = (x - ox) // cell, (y - oy) // cell
-                white = ins and x >= ox and y >= oy and 0 <= gx < 5 and 0 <= gy < 7 and B[gy][gx] == "1"
-                row += bytes((255, 255, 255, 255) if white else (247, 147, 26, 255) if ins else (0, 0, 0, 0))
-            raw += bytes(row)
-        ch = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
-        open(f"docs/icon-{size}.png", "wb").write(b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
-                                                + ch(b"IDAT", zlib.compress(raw)) + ch(b"IEND", b""))
-    json.dump({"name": "BTC Feed", "short_name": "BTC", "start_url": "btc.html", "scope": "./", "display": "standalone",
+    try:
+        feed_icon(192).save("docs/feed-192.png"); feed_icon(512).save("docs/feed-512.png")
+        feed_icon(512, .74).save("docs/feed-maskable-512.png"); feed_icon(180, .86).convert("RGB").save("docs/feed-apple.png")
+    except Exception as e:
+        print("Iconos no generados:", e); return
+    open("docs/feed.svg", "w").write(FEED_SVG)
+    json.dump({"name": "Feed", "short_name": "Feed", "start_url": "btc.html", "scope": "./", "display": "standalone",
                "background_color": "#000000", "theme_color": "#000000",
-               "icons": [{"src": f"icon-{s}.png", "sizes": f"{s}x{s}", "type": "image/png"} for s in (192, 512)]},
+               "icons": [{"src": "feed-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                         {"src": "feed-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                         {"src": "feed-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]},
               open("docs/manifest.json", "w"))
-
-
-XW = {"rsi4h": .06, "macd4h": .06, "rsi1h": .03, "macd1h": .03, "cross": .06, "stoch": .04, "obv": .04,
-      "funding": .06, "ls": .03, "oi": .03, "nasdaq": .05, "dxy": .03}
 
 
 def ohlc(interval):
