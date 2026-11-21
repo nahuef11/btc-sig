@@ -71,12 +71,13 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 <header>
 <div class="top"><b><i>₿</i> Feed</b><button id="rf">Actualizar</button></div>
 <div class="pulse" id="pulse"></div>
-<div class="tabs"><button data-v="chart" class="on">Gráfico</button><button data-v="sig">Señales</button><button data-v="rep">Informes</button><button data-v="news">Noticias</button></div>
+<div class="tabs"><button data-v="chart" class="on">Gráfico</button><button data-v="rep">Informes</button><button data-v="news">Noticias</button></div>
 </header>
 
 
 
 <div id="chartv">
+  <div class="blk" id="sg" hidden></div>
   <div class="tb"><div id="c1"></div><button class="chp" id="tgl"></button></div>
   <div class="blk" id="cp" hidden>
     <div class="cl">Velas visibles</div><div id="c2"></div>
@@ -91,12 +92,12 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
     <div class="fgb"><i id="fgm"></i></div>
     <div class="fgl"><span>Miedo extremo</span><span>Codicia extrema</span></div>
   </div>
-<div class="blk" id="sg" hidden></div>
+
 </div>
 
 <div id="newsv" hidden><div id="fw"><main id="tl"></main><div id="st">Cargando…</div></div></div>
 
-<div id="sigv" hidden></div>
+
 <div id="repv" hidden></div>
 
 <script>
@@ -105,7 +106,7 @@ const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
 const pc=x=>(x>=0?"+":"")+x.toFixed(1).replace(".",",")+"%";
 const lab=a=>a==="COMPRAR"?"COMPRAR · LONG":a==="VENDER"?"VENDER · SHORT":a;
 const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
-let OPEN=null,RP=null,D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart",HL=null,VO=0,RAF=0,HIST={},BK=null,BKT=null,LQWS=null,LQ=[],WS=null,WSOK=false,WSN=0,DT=0;
+let RP=null,D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart",HL=null,VO=0,RAF=0,HIST={},BK=null,BKT=null,LQWS=null,LQ=[],WS=null,WSOK=false,WSN=0,DT=0;
 let CFG={tf:"1h",n:100,ind:["sma20","vol","sig"]};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem("btcfg")||"{}"))}catch(e){}
 const save=()=>{try{localStorage.setItem("btcfg",JSON.stringify(CFG))}catch(e){}};
@@ -390,69 +391,6 @@ function bookSync(){
 }
 
 /* ---------- Señales ---------- */
-function record(all,cur){
-  let e=1,inm=false,prev=null,ops=0;
-  for(const x of all){
-    if(inm&&prev!=null)e*=x.price/prev;prev=x.price;
-    if(x.action==="COMPRAR"&&!inm){inm=true;e*=.999;ops++}
-    else if(x.action==="VENDER"&&inm){inm=false;e*=.999;ops++}
-  }
-  if(inm&&prev!=null)e*=cur/prev;
-  let e2=1,pos=0,p2=null,opsF=0;
-  for(const x of all){
-    if(p2!=null&&pos)e2*=1+pos*(x.price/p2-1);p2=x.price;
-    const np=x.action==="COMPRAR"?1:x.action==="VENDER"?-1:pos;
-    if(np!==pos){e2*=1-.001*Math.abs(np-pos);pos=np;opsF++}
-  }
-  if(pos&&p2!=null)e2*=1+pos*(cur/p2-1);
-  return{fut:(e2-1)*100,opsF,strat:(e-1)*100,hold:(cur/all[0].price-1)*100,ops,days:(Date.now()-new Date(all[0].ts))/864e5,since:new Date(all[0].ts)};
-}
-function dur(d){return d<1?Math.max(1,Math.round(d*24))+" h":(Math.round(d*10)/10).toString().replace(".",",")+" d"}
-function sigs(){
-  const v=$("sigv");v.textContent="";
-  if(!S||!S.length){v.appendChild(el("div","empty","Aún no hay señales registradas."));return}
-  const all=S.slice().sort((a,b)=>a.ts<b.ts?-1:1),cur=LIVEP||D.pulse.price,today=new Date().toDateString(),ch=[];
-  let prev=null;for(const e of all){if(e.action!==prev){ch.push(e);prev=e.action}}
-  const res=new Map(),T={ok:0,bad:0,B:[0,0],V:[0,0],W:[0,0]},days={};
-  ch.forEach((e,i)=>{
-    const nx=ch[i+1],end=nx?nx.price:cur,d=((nx?new Date(nx.ts):new Date())-new Date(e.ts))/864e5,mv=(end/e.price-1)*100;
-    const hit=e.action==="COMPRAR"?mv>0:e.action==="VENDER"?mv<0:Math.abs(mv)<1.5*Math.sqrt(Math.max(1,d));
-    res.set(e,{mv,hit,d,open:!nx});
-    const k=new Date(e.ts).toDateString(),g=days[k]=days[k]||{d:new Date(e.ts),items:[],ok:0,bad:0};g.items.push(e);
-    if(nx){if(hit){T.ok++;g.ok++}else{T.bad++;g.bad++}const t=e.action==="COMPRAR"?"B":e.action==="VENDER"?"V":"W";T[t][1]++;if(hit)T[t][0]++}
-  });
-  const n=T.ok+T.bad,rec=record(all,cur),box=el("div","blk");
-  box.appendChild(el("h4","","Resultados"));
-  box.appendChild(el("div","big",n?Math.round(T.ok/n*100)+"% de aciertos":"Aún sin señales completadas"));
-  if(n)box.appendChild(el("div","det",T.ok+" de "+n+" señales · Comprar/Long "+T.B[0]+"/"+T.B[1]+" · Vender/Short "+T.V[0]+"/"+T.V[1]+" · Esperar "+T.W[0]+"/"+T.W[1]));
-  box.appendChild(el("div","det","Cada señal se evalúa hasta la siguiente: comprar acierta si el precio sube, vender si baja, y esperar si se mueve poco (con más margen cuantos más días dura)."));
-  const rc=el("div","rec");
-  if(rec.ops){
-    rc.append("Spot (comprar y vender) desde el "+rec.since.toLocaleDateString("es-ES",{day:"numeric",month:"short"})+": ");
-    const b=el("b","",pc(rec.strat));b.style.color=rec.strat>=0?"var(--buy)":"var(--sell)";rc.append(b," · Mantener: "+pc(rec.hold));
-  }else rc.append("Aún no hubo ninguna compra ni venta que seguir.");
-  box.appendChild(rc);
-  if(rec.opsF){const f=el("div","rec");f.append("Futuros (largo y corto, sin apalancar): ");const bf=el("b","",pc(rec.fut));bf.style.color=rec.fut>=0?"var(--buy)":"var(--sell)";f.append(bf);box.appendChild(f)}
-  if(rec.days<7)box.appendChild(el("div","det","Registro todavía corto ("+Math.max(1,Math.round(rec.days))+" d): los porcentajes pueden cambiar mucho."));
-  v.appendChild(box);
-  const hn=el("div","det","Solo se muestra una señal cuando cambia el estado (comprar, vender o esperar). Toca una para ver por qué.");hn.style.padding="10px 16px 0";v.appendChild(hn);
-  if(!OPEN)OPEN=new Set([today]);
-  for(const k of Object.keys(days).sort((a,b)=>days[b].d-days[a].d)){
-    const g=days[k],wrap=el("div","dg"),dt0=g.d.toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});wrap.hidden=!OPEN.has(k);
-    const dh=el("div","dh"),dl=el("span","",(OPEN.has(k)?"▾ ":"▸ ")+dt0),dr=el("span","dsum",g.ok+g.bad?"✅ "+g.ok+" · ❌ "+g.bad+" · "+Math.round(g.ok/(g.ok+g.bad)*100)+"%":"");
-    dh.append(dl,dr);dh.onclick=()=>{OPEN.has(k)?OPEN.delete(k):OPEN.add(k);const o=OPEN.has(k);wrap.hidden=!o;dl.textContent=(o?"▾ ":"▸ ")+dt0};
-    v.append(dh,wrap);
-    for(const e of g.items.slice().reverse()){
-      const q=res.get(e),r=el("div","sr");r.appendChild(el("span","t",new Date(e.ts).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})));
-      const b=el("span","bg",lab(e.action));b.style.background=colr(e.action);r.appendChild(b);
-      if(e.action!=="ESPERAR")r.appendChild(el("span","det",Math.abs(e.score)>=60?"fuerte":"moderada"));
-      const p=el("span","p","$"+fmt(e.price)+"  "+(q.open?"en curso "+pc(q.mv):(q.hit?"✅ ":"❌ ")+pc(q.mv)));
-      const cv=el("span","chev","▸"),x=el("div","det xp",(e.expl||"Explicación no disponible para señales antiguas.")+(e.lv?"\n"+lvText(e.lv,e.action):"")+"\n"+(q.open?"Lleva ":"Duró ")+dur(q.d)+(q.open?" en este estado.":" hasta el siguiente cambio."));x.hidden=true;
-      r.style.cursor="pointer";r.onclick=()=>{x.hidden=!x.hidden;cv.textContent=x.hidden?"▸":"▾"};
-      r.append(p,cv);wrap.append(r,x);
-    }
-  }
-}
 function learnCard(){
   const L=D&&D.pulse.learn;if(!L)return null;
   const c=el("div","blk");c.appendChild(el("h4","","Ajustes automáticos"));
@@ -511,10 +449,10 @@ async function load(){
   catch(e){$("st").textContent="No se pudo cargar el feed. Revisa que el workflow haya corrido al menos una vez.";return}
   try{const q=await fetch("signals.json?t="+Date.now(),{cache:"no-store"});S=q.ok?await q.json():null}catch(e){S=null}
   try{const q=await fetch("reports.json?t="+Date.now(),{cache:"no-store"});RP=q.ok?await q.json():null}catch(e){RP=null}
-  pulse();fgCard();sigCard();draw();sigs();reps();if(VIEW==="chart")drawChart();live();
+  pulse();fgCard();sigCard();draw();reps();if(VIEW==="chart")drawChart();live();
 }
 function view(v){
-  VIEW=v;$("chartv").hidden=v!=="chart";$("newsv").hidden=v!=="news";$("repv").hidden=v!=="rep";$("sigv").hidden=v!=="sig";
+  VIEW=v;$("chartv").hidden=v!=="chart";$("newsv").hidden=v!=="news";$("repv").hidden=v!=="rep";
   document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
   if(v==="chart")chart();
 }
