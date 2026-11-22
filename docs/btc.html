@@ -147,7 +147,6 @@ function pulse(){
   const add=(k,v,s)=>{const e=el("span","chip",k+" ");const b=el("b","",v);if(s)b.style.color=s;e.appendChild(b);c.appendChild(e);return b};
   LIVE=add("BTC","$"+fmt(p.price));add("Señal",lab(p.action),colr(p.action));
   if(p.gates&&p.gates.length)add("🚫 Filtro",p.gates.join("; "));
-  add("act.",ago(D.updated));
 }
 function fgCard(){
   const v=D.pulse.fg,c=$("fgc");if(v==null){c.hidden=true;return}c.hidden=false;
