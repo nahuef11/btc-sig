@@ -4,8 +4,9 @@ import json, os, re, math, zlib, struct, time, base64, hmac, hashlib, urllib.req
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 
-H, TH = 7, 35  # horizonte de evaluación (días) y umbral de aviso
-BASE = {"rsi": .20, "macd": .20, "trend": .15, "bb": .15, "fg": .20, "news": .10}
+H, TH = 7, 30
+TH_BASE = 30  # horizonte de evaluación (días) y umbral de aviso
+BASE = {"rsi": 0, "macd": .30, "trend": .30, "bb": 0, "fg": .10, "news": .10}
 STATE = "state.json"
 POS = ("surge", "rally", "bull", "record", "adopt", "approve", "inflow", "soar", "gain", "jump", "rise")
 STRONG_POS = ("approve", "inflow", "record high", "all-time high", "adopt", "reserve", "rate cut")
@@ -202,7 +203,7 @@ def write_pwa():
               open("docs/feed.webmanifest", "w"))
 
 
-XW = {"rsi4h": .06, "macd4h": .06, "rsi1h": .03, "macd1h": .03, "cross": .06, "stoch": .04, "obv": .04,
+XW = {"rsi4h": 0, "macd4h": .06, "rsi1h": 0, "macd1h": .03, "cross": .20, "stoch": 0, "obv": .04,
       "funding": .06, "ls": .03, "oi": .03, "nasdaq": .05, "dxy": .03}
 
 
@@ -311,8 +312,8 @@ PHR = {
 def explain(sc, W, score, action, raw, why, short=False):
     """Explicación en lenguaje claro de por qué se tomó la decisión (sin cifras)."""
     order = sorted(sc, key=lambda k: -abs(sc[k] * W[k]))
-    up = [k for k in order if sc[k] >= .2 and k in PHR]
-    down = [k for k in order if sc[k] <= -.2 and k in PHR]
+    up = [k for k in order if sc[k] >= .2 and k in PHR and W.get(k, 0) > 0]
+    down = [k for k in order if sc[k] <= -.2 and k in PHR and W.get(k, 0) > 0]
     if why: head = f"Había señal de {'compra' if raw == 'COMPRAR' else 'venta'}, pero se prefiere esperar porque {'; '.join(why)}."
     elif action == "COMPRAR": head = "Se recomienda comprar: la mayoría de las señales apuntan al alza."
     elif action == "VENDER": head = "Se recomienda vender: la mayoría de las señales apuntan a la baja."
@@ -479,9 +480,10 @@ def make_chart(path, rows, action, price, lv, log):
     BG, FG, UP, DN = "#0f1115", "#e7e9ea", "#16c784", "#ea3943"
     buy = action == "COMPRAR"
     if action:
-        lines = [(lv["sl"], DN, "-", f"SL fut {lv['sl']:,.0f}"), (lv["tp1"], UP, "-", f"TP1 {lv['tp1']:,.0f}"),
-                 (lv["tp2"], UP, "-", f"TP2 {lv['tp2']:,.0f}"),
-                 (lv["stop_spot"], DN, ":", f"Stop spot {lv['stop_spot']:,.0f}"), (lv["obj_spot"], UP, ":", f"Obj. spot {lv['obj_spot']:,.0f}")]
+        lines = ([(lv["sl"], DN, "-", f"SL fut {lv['sl']:,.0f}"), (lv["tp1"], UP, "-", f"TP1 {lv['tp1']:,.0f}"),
+                  (lv["tp2"], UP, "-", f"TP2 {lv['tp2']:,.0f}")] if buy else []) + [
+                 (lv["stop_spot"], DN, ":", f"{'Stop' if buy else 'Invalidación'} spot {lv['stop_spot']:,.0f}"),
+                 (lv["obj_spot"], UP, ":", f"Obj. {'spot' if buy else 'bajista'} {lv['obj_spot']:,.0f}")]
     else:
         lines = [(lv["sup"], UP, ":", f"Soporte {lv['sup']:,.0f}"), (lv["res"], DN, ":", f"Resistencia {lv['res']:,.0f}")]
     ys = [l[0] for l in lines]
@@ -588,7 +590,7 @@ def fg_word(v):
 
 def top_reason(sc, W, action):
     g = 1 if action == "COMPRAR" else -1
-    ks = [k for k in sc if sc[k] * g >= .2 and k in PHR]
+    ks = [k for k in sc if sc[k] * g >= .2 and k in PHR and W.get(k, 0) > 0]
     return PHR[max(ks, key=lambda k: abs(sc[k] * W.get(k, 0)))][0 if g > 0 else 1] if ks else None
 
 
@@ -675,10 +677,9 @@ def adjust_threshold(st, p, dates, fgmap, L):
         lg.append({"ts": now().isoformat(timespec="seconds"), "text": t})
         admin("🧠 " + t)
 
-    th, last = st.get("th", 35), st.get("th_ts", "")
+    th, last = TH_BASE, st.get("th_ts", "")
     if not last or now() - dt.datetime.fromisoformat(last) >= dt.timedelta(days=7):
-        try: new = tune_threshold(p, dates, fgmap, th)
-        except Exception as e: print("ajuste de umbral", e); new = th
+        new = th  # el umbral ya no se autoajusta: sobre el histórico completo los resultados por umbral son erráticos
         st["th_ts"] = now().isoformat(timespec="seconds")
         if new != th: note(f"Umbral de aviso {'subido' if new > th else 'bajado'} de {th} a {new} tras comprobarlo en datos pasados")
         st["th"] = new
@@ -695,7 +696,7 @@ def adjust_threshold(st, p, dates, fgmap, L):
 def learn_view(st, info):
     rank = sorted(((k, h, n) for k, (h, n) in info.items() if n >= 30 and k in LAB), key=lambda t: -t[1])
     nm = lambda t: f"{LAB[t[0]]} {t[1]} %"
-    return {"th": st.get("th", 35), "caution": bool(st.get("caution")), "rec": st.get("rec30", [0, 0]),
+    return {"th": TH_BASE, "caution": bool(st.get("caution")), "rec": st.get("rec30", [0, 0]),
             "best": [nm(t) for t in rank[:3]], "worst": [nm(t) for t in rank[-3:][::-1]] if len(rank) > 3 else [],
             "log": st.get("learn_log", [])[-5:], "samples": max((n for _, (h, n) in info.items()), default=0)}
 
@@ -738,6 +739,16 @@ def build_read(sc, W, score, action, p, rd, r4, fg, items, why, prev):
     return " ".join(t), facts
 
 
+def halving_ctx(today):
+    hv = [dt.date(2012, 11, 28), dt.date(2016, 7, 9), dt.date(2020, 5, 11), dt.date(2024, 4, 20)]
+    h = max(x for x in hv if x <= today)
+    yr = min(((today.year - h.year) * 12 + today.month - h.month) // 12 + 1, 4)
+    ph = {1: "el tramo históricamente más fuerte", 2: "el tramo históricamente más débil",
+          3: "un tramo intermedio", 4: "un tramo intermedio, previo al siguiente halving"}[yr]
+    return (f"Ciclo: año {yr} tras el halving de {['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][h.month - 1]} de {h.year}, {ph}. "
+            "Solo hay 4 ciclos y el efecto se ha ido debilitando.")
+
+
 def build_report(sc, W, score, p, rd, r4, items, fg, why, caution=False):
     """Informe de mercado en lenguaje claro (no es una señal)."""
     rows, price = r4 or rd, p[-1]
@@ -760,6 +771,7 @@ def build_report(sc, W, score, p, rd, r4, items, fg, why, caution=False):
     if ctx: t.append("Contexto: " + "; ".join(ctx) + ".")
     t.append(f"Niveles clave: soporte {sup:,.0f} · resistencia {res:,.0f}")
     if hl: t.append(f"Titular a vigilar ({hl['source']}): {hl['text'][:110]}")
+    t.append(halving_ctx(now().date()))
     if why: t.append("Ojo: " + why[0] + ".")
     if caution: t.append("Modo cautela activo: las señales recientes han acertado poco, así que solo se avisa con señales más fuertes.")
     t += ["", "ℹ️ Esto no es una señal de compra o venta. Información orientativa, no es asesoramiento financiero."]
@@ -788,11 +800,43 @@ def x_signal_text(action, price, lv, reason, test=False):
     t = [f"{'🟢' if long_ else '🔴'} {action} BTC · ${price:,.0f}"]
     if reason: t.append(reason[0].upper() + reason[1:] + ".")
     t += [f"Spot: {'stop' if long_ else 'invalidación'} {lv['stop_spot']:,.0f} · obj. {lv['obj_spot']:,.0f}",
-          f"{'LONG' if long_ else 'SHORT'}: stop {lv['sl']:,.0f} · TP {lv['tp1']:,.0f}/{lv['tp2']:,.0f}",
+          (f"LONG: stop {lv['sl']:,.0f} · TP {lv['tp1']:,.0f}/{lv['tp2']:,.0f}" if long_ else "Futuros: cerrar largos"),
           "⚠️ No es asesoramiento financiero #BTC"]
     if test: t.insert(0, "🧪 PRUEBA")
     s = "\n".join(t)
     return s if len(s) <= 270 else "\n".join(t[:1] + t[2:])[:280]
+
+
+def pp_close(pp, op, px, why, t):
+    pp["done"].append({"t0": op["t"], "t1": t, "entry": round(op["entry"]), "exit": round(px), "why": why,
+                       "pnl": round((op["entry"] - px) / op["entry"] * 100 - 0.2, 2)})  # corto sin apalancar, comisión 0,1 % por lado
+    pp["done"], pp["open"] = pp["done"][-200:], None
+
+
+def paper_update(st, action, changed, price, lv, r1):
+    """Prueba silenciosa de cortos: no se publican. Se abre uno al cambiar a VENDER y se cierra por stop, objetivo o señal contraria."""
+    pp = st.setdefault("paper", {"open": None, "done": []})
+    nowt, op = int(now().timestamp()), pp["open"]
+    if op:
+        for r in r1:
+            if r[0] <= op["t"]: continue
+            if r[2] >= op["stop"]: pp_close(pp, op, op["stop"], "stop", int(r[0])); break
+            if r[3] <= op["tp"]: pp_close(pp, op, op["tp"], "objetivo", int(r[0])); break
+        if pp["open"] and action == "COMPRAR": pp_close(pp, op, price, "señal contraria", nowt)
+        elif pp["open"] and nowt - op["t"] > 30 * 86400: pp_close(pp, op, price, "tiempo", nowt)
+    if not pp["open"] and action == "VENDER" and changed and lv:
+        pp["open"] = {"t": nowt, "entry": price, "stop": lv["sl"], "tp": lv["tp1"]}
+
+
+def paper_summary(st):
+    pp = st.get("paper") or {}
+    dn, op = pp.get("done", []), pp.get("open")
+    if not dn: return "Cortos en prueba: aún sin operaciones cerradas" + (f" (hay una abierta desde {op['entry']:,.0f})." if op else ".")
+    w, eq = sum(x["pnl"] > 0 for x in dn), 1.0
+    for x in dn: eq *= 1 + x["pnl"] / 100
+    t = f"Cortos en prueba: {len(dn)} cerrados, {w} ganadores ({w / len(dn) * 100:.0f} %), retorno acumulado {(eq - 1) * 100:+.1f} %"
+    if op: t += f"; uno abierto desde {op['entry']:,.0f}"
+    return t + (". Ya hay muestra para decidir." if len(dn) >= 15 else ".")
 
 
 def levels(action, price, a, a4):
@@ -808,8 +852,8 @@ def publish_signal(action, price, a, expl, rows, test=False, real=None, reason=N
     long_ = action == "COMPRAR"
     spot = (f"📈 Spot: comprar · stop {lv['stop_spot']:,.0f} · objetivo {lv['obj_spot']:,.0f}" if long_
             else f"📉 Spot: vender o salir · invalidación sobre {lv['stop_spot']:,.0f} · objetivo bajista {lv['obj_spot']:,.0f}")
-    fut = (f"⚡ Futuros: {'LONG' if long_ else 'SHORT'} · stop {lv['sl']:,.0f} · objetivos {lv['tp1']:,.0f} / {lv['tp2']:,.0f} · "
-           f"apalancamiento máx. sugerido {lv['lev']}x")
+    fut = (f"⚡ Futuros: LONG · stop {lv['sl']:,.0f} · objetivos {lv['tp1']:,.0f} / {lv['tp2']:,.0f} · "
+           f"apalancamiento máx. sugerido {lv['lev']}x" if long_ else "⚡ Futuros: cerrar largos. No se publican señales de corto.")
     cap = ((f"🧪 PRUEBA del canal (no es una señal real; ahora mismo la señal es {real})\n\n" if test else "")
            + f"{'🟢' if long_ else '🔴'} {action} BTC · ${price:,.0f}\n\n{expl}\n\n{spot}\n{fut}\n\n"
            "⚠️ Información orientativa, no es asesoramiento financiero. Los futuros con apalancamiento pueden liquidarte: "
@@ -867,7 +911,7 @@ def main():
     w = {k: v * mult.get(k, 1) for k, v in w.items()}
     xw = {k: v * mult.get(k, 1) for k, v in XW.items()}
     adjust_threshold(st, p, dates, fgmap, L0)
-    TH = st.get("th", 35) + (10 if st.get("caution") else 0)
+    TH = TH_BASE + (10 if st.get("caution") else 0)
     score = combine(sc, {**w, **xw})
     raw = "COMPRAR" if score >= TH else "VENDER" if score <= -TH else "ESPERAR"
     why = gates(raw, score, rd, items, sc)
@@ -905,6 +949,7 @@ def main():
         publish_signal(action if action != "ESPERAR" else "COMPRAR", p[-1], atr(rd),
                        explain(sc, {**w, **xw}, score, action, raw, why, short=True), r4 or rd, test=True, real=action,
                        reason=top_reason(sc, {**w, **xw}, action if action != "ESPERAR" else "COMPRAR"))
+    paper_update(st, action, action != st.get("last"), p[-1], lv, r1)
     st["last"] = action
 
     n = now()
@@ -915,7 +960,7 @@ def main():
         hi = ", ".join(f"{k} {h}% ({c})" for k, (h, c) in info.items())
         xi = ", ".join(f"{k} {h}% ({c})" for k, (h, c) in xinfo.items()) or "aún sin datos"
         admin(f"📊 Informe semanal BTC\nPrecio {p[-1]:,.0f} · puntuación {score} ({action})\nAciertos en vivo: {live}\n"
-                 f"Aciertos históricos por indicador: {hi}\nPesos actuales: {ws}\nFiltros nuevos a 24 h: {xi}")
+                 f"Aciertos históricos por indicador: {hi}\nPesos actuales: {ws}\nFiltros nuevos a 24 h: {xi}\n{paper_summary(st)}")
     try: seen = {i["id"] for i in json.load(open("docs/feed.json"))["items"]}
     except Exception: seen = None
     if seen is not None:
