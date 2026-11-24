@@ -108,7 +108,7 @@ a.go{color:var(--mut);font-size:13px;text-decoration:none}
 const $=id=>document.getElementById(id);
 const fmt=n=>Number(n).toLocaleString("es-ES",{maximumFractionDigits:0});
 const pc=x=>(x>=0?"+":"")+x.toFixed(1).replace(".",",")+"%";
-const lab=a=>a==="COMPRAR"?"COMPRAR · LONG":a==="VENDER"?"VENDER · SHORT":a;
+const lab=a=>a==="COMPRAR"?"COMPRAR · LONG":a;
 const bgs=(e,a)=>{e.style.background=colr(a);if(a==="ESPERAR")e.style.color="#111"};
 const colr=a=>a==="COMPRAR"?"var(--buy)":a==="VENDER"?"var(--sell)":"var(--wait)";
 let RP=null,D=null,S=null,LIVE=null,LIVEP=null,CD={},CV=null,VIEW="chart",HL=null,VO=0,RAF=0,HIST={},BK=null,BKT=null,LQWS=null,LQ=[],WS=null,WSOK=false,WSN=0,DT=0;
@@ -140,7 +140,7 @@ function draw(){
 }
 
 
-function lvText(L,a){const B=a==="COMPRAR";return"Spot: "+(B?"stop ":"invalidación sobre ")+fmt(L.ss)+" · objetivo "+fmt(L.os)+"\nFuturos: "+(B?"LONG":"SHORT")+" · stop "+fmt(L.sl)+" · objetivos "+fmt(L.tp1)+" / "+fmt(L.tp2)+" · apalancamiento máx. sugerido "+L.lev+"x"}
+function lvText(L,a){const B=a==="COMPRAR";return"Spot: "+(B?"stop ":"invalidación sobre ")+fmt(L.ss)+" · objetivo "+fmt(L.os)+(B?"\nFuturos: LONG · stop "+fmt(L.sl)+" · objetivos "+fmt(L.tp1)+" / "+fmt(L.tp2)+" · apalancamiento máx. sugerido "+L.lev+"x":"\nFuturos: cerrar largos")}
 /* ---------- Inicio ---------- */
 function pulse(){
   const p=D.pulse,c=$("pulse");c.textContent="";
