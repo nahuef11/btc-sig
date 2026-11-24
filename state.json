@@ -702,6 +702,12 @@
    "price": 61339.6,
    "score": 19,
    "action": "ESPERAR"
+  },
+  {
+   "ts": "2026-11-24T02:21:03+00:00",
+   "price": 60537.2,
+   "score": 25,
+   "action": "ESPERAR"
   }
  ],
  "weights": {
@@ -713,10 +719,6 @@
   "news": 0.063
  },
  "oi": [
-  [
-   "2026-11-21T07:27:34+00:00",
-   3240529.8800000134
-  ],
   [
    "2026-11-21T07:35:18+00:00",
    3290680.9300000137
@@ -952,6 +954,10 @@
   [
    "2026-11-24T01:06:13+00:00",
    2960532.010000008
+  ],
+  [
+   "2026-11-24T02:21:03+00:00",
+   2977125.540000009
   ]
  ],
  "learn": {
@@ -1085,14 +1091,14 @@
   "facts": {
    "a": "ESPERAR",
    "b": "alcista leve",
-   "m24": "se mantiene lateral",
+   "m24": "baja",
    "m7": "cae con fuerza",
-   "z": "medio",
+   "z": "soporte",
    "e": false,
    "f": "miedo extremo",
    "n": "negativas",
    "g": ""
   },
-  "text": "BTC se mantiene lateral en 24 h y cae con fuerza 5,5 % en la semana. Cotiza por debajo de su media de corto plazo; soporte en 60.268 y resistencia en 64.014. Las se\u00f1ales se inclinan al alza sin llegar a dar compra."
+  "text": "BTC baja 1,1 % en 24 h y cae con fuerza 6,7 % en la semana. Cotiza por debajo de su media de corto plazo, cerca del soporte 60.268. Las se\u00f1ales se inclinan al alza sin llegar a dar compra. Novedad: el precio ahora baja en 24 h; el precio lleg\u00f3 cerca del soporte."
  }
 }
