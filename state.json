@@ -762,6 +762,12 @@
    "price": 59776.0,
    "score": -48,
    "action": "ESPERAR"
+  },
+  {
+   "ts": "2026-11-24T14:59:11+00:00",
+   "price": 60266.3,
+   "score": -47,
+   "action": "ESPERAR"
   }
  ],
  "weights": {
@@ -773,10 +779,6 @@
   "news": 0.082
  },
  "oi": [
-  [
-   "2026-11-21T15:45:15+00:00",
-   3202512.2000000104
-  ],
   [
    "2026-11-21T16:45:00+00:00",
    3201818.670000012
@@ -1012,6 +1014,10 @@
   [
    "2026-11-24T13:15:40+00:00",
    3069966.3300000113
+  ],
+  [
+   "2026-11-24T14:59:10+00:00",
+   3049786.8600000096
   ]
  ],
  "learn": {
@@ -1152,13 +1158,13 @@
    "b": "bajista fuerte",
    "m24": "cae con fuerza",
    "m7": "cae con fuerza",
-   "z": "medio",
+   "z": "resistencia",
    "e": false,
    "f": "miedo extremo",
    "n": "negativas",
    "g": "hay una r\u00e1faga de noticias importantes y conviene esperar a que se calme"
   },
-  "text": "BTC cae con fuerza 4,9 % en 24 h y cae con fuerza 7,9 % en la semana. Cotiza por debajo de su media de corto plazo; soporte en 58.650 y resistencia en 60.883. Las se\u00f1ales apuntan claramente a la baja. Ojo: hay una r\u00e1faga de noticias importantes y conviene esperar a que se calme. Novedad: el precio ahora cae con fuerza en 24 h; las noticias pasaron a ser negativas."
+  "text": "BTC cae con fuerza 4,1 % en 24 h y cae con fuerza 7,1 % en la semana. Cotiza por debajo de su media de corto plazo, cerca de la resistencia 60.883. Las se\u00f1ales apuntan claramente a la baja. Ojo: hay una r\u00e1faga de noticias importantes y conviene esperar a que se calme. Novedad: el precio lleg\u00f3 cerca del resistencia."
  },
  "paper": {
   "open": null,
