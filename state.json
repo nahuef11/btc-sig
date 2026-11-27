@@ -250,13 +250,15 @@
    "ts": "2026-11-20T11:00:21+00:00",
    "price": 62009.5,
    "score": -5,
-   "action": "ESPERAR"
+   "action": "ESPERAR",
+   "ret": -0.0077
   },
   {
    "ts": "2026-11-20T11:57:21+00:00",
    "price": 61743.1,
    "score": -7,
-   "action": "ESPERAR"
+   "action": "ESPERAR",
+   "ret": -0.0034
   },
   {
    "ts": "2026-11-20T12:54:59+00:00",
@@ -1115,6 +1117,12 @@
    "price": 61618.8,
    "score": -6,
    "action": "ESPERAR"
+  },
+  {
+   "ts": "2026-11-27T11:57:45+00:00",
+   "price": 61530.9,
+   "score": -7,
+   "action": "ESPERAR"
   }
  ],
  "weights": {
@@ -1126,10 +1134,6 @@
   "news": 0.087
  },
  "oi": [
-  [
-   "2026-11-24T06:04:17+00:00",
-   3010454.5200000117
-  ],
   [
    "2026-11-24T07:18:15+00:00",
    3030426.0700000133
@@ -1365,6 +1369,10 @@
   [
    "2026-11-27T10:10:18+00:00",
    3209750.790000011
+  ],
+  [
+   "2026-11-27T11:57:45+00:00",
+   3195634.650000011
   ]
  ],
  "learn": {
@@ -1509,13 +1517,13 @@
    "b": "neutral",
    "m24": "sube",
    "m7": "sube con fuerza",
-   "z": "medio",
+   "z": "resistencia",
    "e": true,
    "f": "miedo extremo",
    "n": "negativas",
    "g": ""
   },
-  "text": "BTC sube 1,9 % en 24 h y sube con fuerza 4,7 % en la semana. Cotiza por encima de su media de corto plazo; soporte en 60.268 y resistencia en 64.014. Las se\u00f1ales no tienen una direcci\u00f3n clara."
+  "text": "BTC sube 1,5 % en 24 h y sube con fuerza 4,6 % en la semana. Cotiza por encima de su media de corto plazo, cerca de la resistencia 61.533. Las se\u00f1ales no tienen una direcci\u00f3n clara. Novedad: el precio lleg\u00f3 cerca del resistencia."
  },
  "paper": {
   "open": {
@@ -1549,9 +1557,9 @@
    [
     "2026-11-27",
     10000.0,
-    10003.31
+    9983.76
    ]
   ],
-  "eur": 56244.5
+  "eur": 56134.6
  }
 }
