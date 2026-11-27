@@ -207,8 +207,8 @@ XW = {"rsi4h": 0, "macd4h": .06, "rsi1h": 0, "macd1h": .03, "cross": .20, "stoch
       "funding": .06, "ls": .03, "oi": .03, "nasdaq": .05, "dxy": .03}
 
 
-def ohlc(interval):
-    d = json.loads(get(f"https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval={interval}"))["result"]
+def ohlc(interval, pair="XBTUSD"):
+    d = json.loads(get(f"https://api.kraken.com/0/public/OHLC?pair={pair}&interval={interval}"))["result"]
     return [[float(x) for x in r[:7]] for r in [v for k, v in d.items() if k != "last"][0]]  # t,o,h,l,c,vwap,vol
 
 
@@ -454,8 +454,8 @@ def admin(text):
     else: print(text)
 
 
-def telegram_photo(path, caption):
-    tok, chat = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+def telegram_photo(path, caption, chat=None):
+    tok, chat = os.getenv("TELEGRAM_TOKEN"), chat or os.getenv("TELEGRAM_CHAT_ID")
     if not tok or not chat:
         print(caption); return
     b = "----btc" + os.urandom(8).hex()
@@ -839,6 +839,102 @@ def paper_summary(st):
     return t + (". Ya hay muestra para decidir." if len(dn) >= 15 else ".")
 
 
+def eur(v, dec=0):
+    return f"{v:,.{dec}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def pct(x):
+    return f"{x:+.1f}".replace(".", ",")
+
+
+def btcq(x):
+    return f"{x:.5f}".replace(".", ",")
+
+
+def sim_trade(sm, px, why):
+    gross = sm["btc"] * px * (1 - .001)
+    pnl = (gross / sm["cost"] - 1) * 100
+    sm["trades"].append({"t0": sm["t_in"], "t1": int(now().timestamp()), "buy": round(sm["entry"]), "sell": round(px), "why": why, "pnl": round(pnl, 2)})
+    sm["trades"] = sm["trades"][-200:]
+    txt = (f"🧪 Cuenta simulada: venta ({why}) de {btcq(sm['btc'])} BTC a {eur(px)} €. Resultado {pct(pnl)} % "
+           f"({eur(gross - sm['cost'])} €). Efectivo: {eur(gross)} €.")
+    sm["cash"], sm["btc"], sm["entry"], sm["stop"] = gross, 0.0, None, None
+    admin(txt)
+
+
+def sim_update(st, action, changed, usd, lv):
+    """Cuenta simulada en euros (10.000 € por defecto) que sigue las señales en spot: compra con COMPRAR, vende con VENDER o con el stop.
+    Avisa solo a tu chat personal. Empieza en efectivo y espera a la siguiente señal de compra."""
+    try:
+        px = float(json.loads(get("https://api.kraken.com/0/public/Ticker?pair=XBTEUR"))["result"]["XXBTZEUR"]["c"][0])
+    except Exception as e:
+        print("Simulador: sin precio en euros", e); return
+    cap = float(os.getenv("SIM_CAPITAL") or 10000)
+    sm = st.setdefault("sim", {"cash": cap, "btc": 0.0, "start": cap, "hold0": px, "entry": None, "stop": None, "cost": 0.0,
+                               "t_in": 0, "trades": [], "eq": []})
+    sm["eur"] = px
+    if sm["btc"] > 0:
+        stopped = False
+        try:
+            for r in ohlc(60, "XBTEUR"):
+                if r[0] > sm["t_in"] and r[3] <= sm["stop"]: stopped = True; break
+        except Exception as e: print("Simulador: sin velas en euros", e)
+        if stopped: sim_trade(sm, sm["stop"], "stop")
+        elif action == "VENDER" and changed: sim_trade(sm, px, "señal de venta")
+    if sm["btc"] == 0 and action == "COMPRAR" and changed and lv and sm["cash"] > 0:
+        sm["cost"], sm["entry"], sm["t_in"] = sm["cash"], px, int(now().timestamp())
+        sm["btc"] = sm["cash"] * (1 - .001) / px
+        sm["stop"] = px * lv["stop_spot"] / usd
+        sm["cash"] = 0.0
+        admin(f"🧪 Cuenta simulada: compra de {btcq(sm['btc'])} BTC a {eur(px)} € con {eur(sm['cost'])} €. Stop en {eur(sm['stop'])} €.")
+    today = now().strftime("%Y-%m-%d")
+    val = sm["cash"] + sm["btc"] * px
+    hold = round(sm["start"] * px / sm["hold0"], 2)
+    if not sm["eq"] or sm["eq"][-1][0] != today: sm["eq"].append([today, round(val, 2), hold])
+    else: sm["eq"][-1][1], sm["eq"][-1][2] = round(val, 2), hold
+    sm["eq"] = sm["eq"][-800:]
+
+
+def sim_summary(sm):
+    px = sm.get("eur") or sm["hold0"]
+    val = sm["cash"] + sm["btc"] * px
+    hold = sm["start"] * px / sm["hold0"]
+    tr = sm["trades"]
+    w = sum(t["pnl"] > 0 for t in tr)
+    pos = f"en BTC desde {eur(sm['entry'])} €" if sm["btc"] > 0 else "en efectivo, esperando señal de compra"
+    return (f"🧪 Cuenta simulada: {eur(val)} € ({pct((val / sm['start'] - 1) * 100)} %), {pos}.\n"
+            f"Comprar y mantener desde el inicio: {eur(hold)} € ({pct((hold / sm['start'] - 1) * 100)} %).\n"
+            f"Operaciones cerradas: {len(tr)}" + (f", {w} ganadoras." if tr else "."))
+
+
+def sim_weekly(st):
+    sm = st.get("sim")
+    chat = os.getenv("TELEGRAM_ADMIN_CHAT_ID")
+    if not sm or len(sm["eq"]) < 2: return
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        BG = "#000000"
+        fig, ax = plt.subplots(figsize=(8, 4), dpi=100, facecolor=BG)
+        ax.set_facecolor(BG)
+        xs = range(len(sm["eq"]))
+        ax.plot(xs, [e[1] for e in sm["eq"]], color="#f7931a", lw=2.2, label="Cuenta simulada")
+        ax.plot(xs, [e[2] for e in sm["eq"]], color="#8a9bb0", lw=1.4, ls="--", label="Comprar y mantener")
+        ax.set_xticks([0, len(sm["eq"]) - 1])
+        ax.set_xticklabels([sm["eq"][0][0], sm["eq"][-1][0]], color="#8a9bb0")
+        ax.tick_params(colors="#8a9bb0")
+        ax.grid(color="#1f2328", lw=.6)
+        for sp in ax.spines.values(): sp.set_color("#2f3336")
+        ax.legend(facecolor=BG, edgecolor="none", labelcolor="#e7e9ea")
+        ax.set_title("Cuenta simulada (€)", color="#e7e9ea", loc="left")
+        fig.savefig("sim.png", facecolor=BG, bbox_inches="tight")
+        plt.close(fig)
+        telegram_photo("sim.png", sim_summary(sm), chat)
+    except Exception as e:
+        print("Gráfico del simulador falló:", e); admin(sim_summary(sm))
+
+
 def levels(action, price, a, a4):
     """Niveles: spot con el rango diario (stop 2x, objetivo 3x) y futuros con el de 4 h (stop 1,5x, objetivos 2x y 3,5x)."""
     g = 1 if action == "COMPRAR" else -1
@@ -950,6 +1046,11 @@ def main():
                        explain(sc, {**w, **xw}, score, action, raw, why, short=True), r4 or rd, test=True, real=action,
                        reason=top_reason(sc, {**w, **xw}, action if action != "ESPERAR" else "COMPRAR"))
     paper_update(st, action, action != st.get("last"), p[-1], lv, r1)
+    sim_update(st, action, action != st.get("last"), p[-1], lv)
+    sm_ = st.get("sim")
+    if sm_ and now().hour == int(os.getenv("SIM_HOUR") or 19) and sm_.get("last_sum") != now().strftime("%Y-%m-%d"):
+        sm_["last_sum"] = now().strftime("%Y-%m-%d"); admin(sim_summary(sm_))
+    if sm_ and os.getenv("TEST_POST") == "true": admin("🧪 PRUEBA\n" + sim_summary(sm_))
     st["last"] = action
 
     n = now()
@@ -961,6 +1062,7 @@ def main():
         xi = ", ".join(f"{k} {h}% ({c})" for k, (h, c) in xinfo.items()) or "aún sin datos"
         admin(f"📊 Informe semanal BTC\nPrecio {p[-1]:,.0f} · puntuación {score} ({action})\nAciertos en vivo: {live}\n"
                  f"Aciertos históricos por indicador: {hi}\nPesos actuales: {ws}\nFiltros nuevos a 24 h: {xi}\n{paper_summary(st)}")
+        sim_weekly(st)
     try: seen = {i["id"] for i in json.load(open("docs/feed.json"))["items"]}
     except Exception: seen = None
     if seen is not None:
