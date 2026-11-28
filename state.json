@@ -404,19 +404,22 @@
    "ts": "2026-11-21T07:27:34+00:00",
    "price": 58040.5,
    "score": -9,
-   "action": "ESPERAR"
+   "action": "ESPERAR",
+   "ret": 0.0248
   },
   {
    "ts": "2026-11-21T07:35:18+00:00",
    "price": 58104.7,
    "score": -9,
-   "action": "ESPERAR"
+   "action": "ESPERAR",
+   "ret": 0.0237
   },
   {
    "ts": "2026-11-21T08:16:05+00:00",
    "price": 57662.2,
    "score": -8,
-   "action": "ESPERAR"
+   "action": "ESPERAR",
+   "ret": 0.0315
   },
   {
    "ts": "2026-11-21T09:47:43+00:00",
@@ -1239,6 +1242,12 @@
    "price": 59445.6,
    "score": -15,
    "action": "ESPERAR"
+  },
+  {
+   "ts": "2026-11-28T08:52:40+00:00",
+   "price": 59480.0,
+   "score": -13,
+   "action": "ESPERAR"
   }
  ],
  "weights": {
@@ -1250,10 +1259,6 @@
   "news": 0.1
  },
  "oi": [
-  [
-   "2026-11-25T02:56:26+00:00",
-   3090960.32000001
-  ],
   [
    "2026-11-25T04:02:43+00:00",
    3068384.320000011
@@ -1489,6 +1494,10 @@
   [
    "2026-11-28T07:10:30+00:00",
    3204739.0500000142
+  ],
+  [
+   "2026-11-28T08:52:40+00:00",
+   3224009.5800000145
   ]
  ],
  "learn": {
@@ -1630,16 +1639,16 @@
  "read": {
   "facts": {
    "a": "ESPERAR",
-   "b": "bajista leve",
+   "b": "neutral",
    "m24": "cae con fuerza",
    "m7": "baja",
    "z": "soporte",
    "e": false,
    "f": "miedo extremo",
-   "n": "negativas",
+   "n": "mixtas",
    "g": ""
   },
-  "text": "BTC cae con fuerza 3,5 % en 24 h y baja 1,1 % en la semana. Cotiza por debajo de su media de corto plazo, cerca del soporte 58.729. Las se\u00f1ales se inclinan a la baja sin llegar a dar venta. Novedad: el sesgo pas\u00f3 a bajista leve; el precio lleg\u00f3 cerca del soporte."
+  "text": "BTC cae con fuerza 3,4 % en 24 h y baja 1,0 % en la semana. Cotiza por debajo de su media de corto plazo, cerca del soporte 58.729. Las se\u00f1ales no tienen una direcci\u00f3n clara. Novedad: el sesgo pas\u00f3 a neutral; las noticias pasaron a ser mixtas."
  },
  "paper": {
   "open": {
@@ -1678,10 +1687,10 @@
    [
     "2026-11-28",
     10000.0,
-    9676.82
+    9678.42
    ]
   ],
-  "eur": 54408.8,
+  "eur": 54417.8,
   "last_sum": "2026-11-27"
  }
 }
