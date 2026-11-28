@@ -362,7 +362,8 @@
    "ts": "2026-11-21T01:05:30+00:00",
    "price": 58863.9,
    "score": -10,
-   "action": "ESPERAR"
+   "action": "ESPERAR",
+   "ret": 0.0197
   },
   {
    "ts": "2026-11-21T02:13:02+00:00",
@@ -1197,21 +1198,23 @@
    "price": 59838.3,
    "score": -25,
    "action": "ESPERAR"
+  },
+  {
+   "ts": "2026-11-28T01:10:45+00:00",
+   "price": 60022.6,
+   "score": -10,
+   "action": "ESPERAR"
   }
  ],
  "weights": {
   "rsi": 0.0,
-  "macd": 0.393,
-  "trend": 0.273,
+  "macd": 0.394,
+  "trend": 0.274,
   "bb": 0.0,
-  "fg": 0.114,
+  "fg": 0.112,
   "news": 0.095
  },
  "oi": [
-  [
-   "2026-11-24T20:02:39+00:00",
-   3078173.210000014
-  ],
   [
    "2026-11-24T20:55:15+00:00",
    3072635.9200000125
@@ -1447,6 +1450,10 @@
   [
    "2026-11-27T23:53:16+00:00",
    3199902.070000015
+  ],
+  [
+   "2026-11-28T01:10:44+00:00",
+   3192016.080000013
   ]
  ],
  "learn": {
@@ -1588,16 +1595,16 @@
  "read": {
   "facts": {
    "a": "ESPERAR",
-   "b": "bajista leve",
+   "b": "neutral",
    "m24": "baja",
-   "m7": "sube",
-   "z": "medio",
+   "m7": "se mantiene lateral",
+   "z": "soporte",
    "e": false,
    "f": "miedo extremo",
    "n": "negativas",
    "g": ""
   },
-  "text": "BTC baja 1,2 % en 24 h y sube 1,6 % en la semana. Cotiza por debajo de su media de corto plazo; soporte en 58.650 y resistencia en 60.883. Las se\u00f1ales se inclinan a la baja sin llegar a dar venta."
+  "text": "BTC baja 2,1 % en 24 h y se mantiene lateral en la semana. Cotiza por debajo de su media de corto plazo, cerca del soporte 59.850. Las se\u00f1ales no tienen una direcci\u00f3n clara. Novedad: el sesgo pas\u00f3 a neutral; el precio lleg\u00f3 cerca del soporte."
  },
  "paper": {
   "open": {
@@ -1632,9 +1639,14 @@
     "2026-11-27",
     10000.0,
     9732.44
+   ],
+   [
+    "2026-11-28",
+    10000.0,
+    9762.69
    ]
   ],
-  "eur": 54721.5,
+  "eur": 54891.6,
   "last_sum": "2026-11-27"
  }
 }
